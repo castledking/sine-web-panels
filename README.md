@@ -9,6 +9,7 @@ The saved Zen Browser implementation is only a reference. This repository is a s
 - Persistent web panel URLs stored in `sine.web-panels.items`.
 - Favicon rail with a bottom `+` button.
 - URL-only add/edit popup with validation for `http` and `https`.
+- Tab context-menu action to add the clicked web tab to Web Panels.
 - Floating panel surface that opens above the page without resizing it.
 - Outside-click and Escape dismissal.
 - Resizable panel with a `320px` minimum width.
@@ -19,9 +20,15 @@ The saved Zen Browser implementation is only a reference. This repository is a s
 - Unread count badge from title prefixes such as `(3) Inbox` or `[3] Inbox`.
 - Clean Sine unload handling for DOM, listeners, and live panel browsers.
 
-## Local Install
+## Install
 
-Install Sine, then add this repository as an unpublished/custom mod. For local JavaScript mods outside the Sine store, Sine may require enabling unsafe JavaScript.
+1. Install Sine for your browser.
+2. Open Sine Mods in browser settings.
+3. Add this repository as a custom/unpublished mod.
+4. Enable unsafe JavaScript if Sine requires it for local mods.
+5. Restart the browser if Sine does not hot-load chrome scripts.
+
+The mod is designed for Zen Browser first. It should load in Firefox-family browsers that support Sine chrome JavaScript, but non-Zen layouts may need additional styling validation.
 
 ## Preferences
 
@@ -29,9 +36,23 @@ Install Sine, then add this repository as an unpublished/custom mod. For local J
 - `sine.web-panels.width`: remembered floating panel width.
 - `sine.web-panels.items`: JSON list of panel and separator items.
 
-## Current Validation Status
+## Validate
 
-Static validation passes for JSON and JavaScript syntax. Manual browser validation still needs to be run through Sine on Zen Browser before this should be considered store-ready.
+Run the static package checks before publishing:
+
+```bash
+node scripts/validate-package.mjs
+git diff --check
+```
+
+Manual browser checks:
+
+- Install through Sine as a custom mod.
+- Confirm the rail appears and reserves viewport space.
+- Add a URL with the `+` button.
+- Right-click a web tab and choose `Add to Web Panels`.
+- Open, close, resize, unload, reorder, and delete panels.
+- Disable the mod and confirm the rail, panel browsers, and listeners unload.
 
 ## Screenshots Checklist
 

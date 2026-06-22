@@ -16,6 +16,7 @@ const SURFACE_ID = "sine-web-panels-surface";
 const BACKDROP_ID = "sine-web-panels-backdrop";
 const MENU_ID = "sine-web-panels-menu";
 const EDITOR_ID = "sine-web-panels-editor";
+const TAB_MENU_ITEM_ID = "sine-web-panels-tab-context-add";
 
 function isPanel(item) {
   return item?.type === PANEL_TYPE;
@@ -39,12 +40,16 @@ class SineWebPanels {
   #backdrop;
   #editor;
   #menu;
+  #browserChrome;
+  #contentContainer;
+  #tabContextMenuItem;
   #runtime;
   #items = [];
   #activeId = null;
   #editorState = null;
   #railInsertIndex = null;
   #unreadCounts = new Map();
+  #menuOpenedAt = 0;
   #abortController = new AbortController();
   #prefObserver;
   #resizeState = null;
@@ -66,6 +71,8 @@ class SineWebPanels {
 
   destroyExistingRoot() {
     this.document.getElementById(ROOT_ID)?.remove();
+    this.document.getElementById(EDITOR_ID)?.remove();
+    this.document.getElementById(TAB_MENU_ITEM_ID)?.remove();
   }
 
   destroy() {
@@ -74,14 +81,19 @@ class SineWebPanels {
       Services.prefs.removeObserver(WebPanelsStore.prefs.enabled, this.#prefObserver);
     }
     this.#runtime?.destroy();
+    this.#resetChromeLayout();
+    this.#editor?.remove();
+    this.#tabContextMenuItem?.remove();
     this.#root?.remove();
     this.#activeId = null;
+    this.#editor = null;
+    this.#tabContextMenuItem = null;
     this.#root = null;
   }
 
   #mount() {
-    const browserChrome = this.document.getElementById("browser");
-    if (!browserChrome) {
+    this.#browserChrome = this.document.getElementById("browser");
+    if (!this.#browserChrome) {
       console.warn("[Web Panels] Browser chrome root was not found.");
       return;
     }
@@ -111,17 +123,21 @@ class SineWebPanels {
     this.#list = this.#el("div", { id: LIST_ID });
     const addButton = this.#button({
       id: ADD_BUTTON_ID,
-      label: "+",
+      label: "",
       title: "New Web Panel",
       className: "sine-web-panels-add-button",
     });
+    addButton.setAttribute("aria-label", "New Web Panel");
     this.#rail.append(this.#list, addButton);
 
     this.#editor = this.#buildEditor();
     this.#menu = this.#el("div", { id: MENU_ID, hidden: "true", role: "menu" });
 
-    this.#root.append(this.#backdrop, this.#surfaceShell, this.#rail, this.#editor, this.#menu);
-    browserChrome.append(this.#root);
+    this.#root.append(this.#backdrop, this.#surfaceShell, this.#rail, this.#menu);
+    this.#browserChrome.append(this.#root);
+    (this.document.getElementById("mainPopupSet") ?? this.#browserChrome).append(this.#editor);
+    this.#mountTabContextMenuItem();
+    this.#syncChromeLayout();
 
     const signal = this.#abortController.signal;
     addButton.addEventListener("click", event => {
@@ -138,6 +154,32 @@ class SineWebPanels {
     this.document.addEventListener("click", this.#onDocumentClick, { signal });
     this.document.addEventListener("keydown", this.#onKeyDown, { signal });
     this.#render();
+  }
+
+  #mountTabContextMenuItem() {
+    const tabContextMenu = this.document.getElementById("tabContextMenu");
+    if (!tabContextMenu) {
+      console.warn("[Web Panels] Tab context menu was not found.");
+      return;
+    }
+
+    const menuItem = this.#xul("menuitem", {
+      id: TAB_MENU_ITEM_ID,
+      label: "Add to Web Panels",
+      accesskey: "W",
+    });
+    const insertBefore =
+      this.document.getElementById("context_bookmarkTab") ??
+      this.document.getElementById("context_closeTab") ??
+      null;
+    tabContextMenu.insertBefore(menuItem, insertBefore);
+    menuItem.addEventListener("command", this.#onAddTabToWebPanels, {
+      signal: this.#abortController.signal,
+    });
+    tabContextMenu.addEventListener("popupshowing", this.#onTabContextMenuShowing, {
+      signal: this.#abortController.signal,
+    });
+    this.#tabContextMenuItem = menuItem;
   }
 
   #observePrefs() {
@@ -158,6 +200,7 @@ class SineWebPanels {
 
     if (this.#store.enabled) {
       this.#root.removeAttribute("disabled");
+      this.#syncChromeLayout();
       this.#render();
       return;
     }
@@ -166,6 +209,49 @@ class SineWebPanels {
     this.#runtime?.destroy();
     this.#runtime = new WebPanelsRuntime(this.window, this.#surface);
     this.#root.setAttribute("disabled", "true");
+    this.#resetChromeLayout();
+  }
+
+  #syncChromeLayout() {
+    if (!this.#browserChrome || !this.#root || !this.#store.enabled) {
+      return;
+    }
+
+    const side = this.#placementSide();
+    const styles = this.window.getComputedStyle(this.#root);
+    const railSize = Number.parseFloat(styles.getPropertyValue("--sine-web-panels-rail-size")) || 36;
+    const gap = Number.parseFloat(styles.getPropertyValue("--sine-web-panels-gap")) || 8;
+    const reservedSize = `${railSize + gap}px`;
+    this.#browserChrome.setAttribute("sine-web-panels-side", side);
+    this.#browserChrome.style.setProperty(
+      "--sine-web-panels-reserved-inline-size",
+      reservedSize
+    );
+    this.#contentContainer = this.#findContentContainer();
+    this.#contentContainer?.style.removeProperty("margin-inline-start");
+    this.#contentContainer?.style.removeProperty("margin-inline-end");
+    this.#contentContainer?.style.setProperty(
+      side === "right" ? "margin-inline-end" : "margin-inline-start",
+      reservedSize,
+      "important"
+    );
+  }
+
+  #resetChromeLayout() {
+    this.#browserChrome?.removeAttribute("sine-web-panels-side");
+    this.#browserChrome?.style.removeProperty("--sine-web-panels-reserved-inline-size");
+    this.#contentContainer?.style.removeProperty("margin-inline-start");
+    this.#contentContainer?.style.removeProperty("margin-inline-end");
+    this.#contentContainer = null;
+  }
+
+  #findContentContainer() {
+    return (
+      this.document.getElementById("zen-appcontent-wrapper") ??
+      this.document.getElementById("zen-tabbox-wrapper") ??
+      this.document.getElementById("tabbrowser-tabbox") ??
+      this.document.getElementById("appcontent")
+    );
   }
 
   #render() {
@@ -186,6 +272,7 @@ class SineWebPanels {
 
     this.#root.toggleAttribute("has-items", this.#items.length > 0);
     this.#root.setAttribute("side", this.#placementSide());
+    this.#syncChromeLayout();
   }
 
   #renderPanelButton(item, index) {
@@ -325,7 +412,16 @@ class SineWebPanels {
   }
 
   #buildEditor() {
-    const editor = this.#el("form", { id: EDITOR_ID, hidden: "true" });
+    const editor = this.#xul("panel", {
+      id: EDITOR_ID,
+      class: "cui-widget-panel panel-no-padding",
+      type: "arrow",
+      orient: "vertical",
+      flip: "slide",
+      consumeoutsideclicks: "never",
+      hidden: "true",
+    });
+    const form = this.#el("form", { id: "sine-web-panels-editor-content" });
     const input = this.#el("input", {
       id: "sine-web-panels-url-input",
       type: "text",
@@ -344,8 +440,8 @@ class SineWebPanels {
       className: "sine-web-panels-ghost-button",
     });
     submit.type = "submit";
-    editor.append(input, submit, error);
-    editor.addEventListener("submit", event => {
+    form.append(input, submit, error);
+    form.addEventListener("submit", event => {
       event.preventDefault();
       this.#saveEditor();
     }, { signal: this.#abortController.signal });
@@ -353,6 +449,11 @@ class SineWebPanels {
       submit.disabled = !input.value.trim();
       error.hidden = true;
     }, { signal: this.#abortController.signal });
+    editor.addEventListener("popuphidden", () => {
+      editor.hidden = true;
+      this.#editorState = null;
+    }, { signal: this.#abortController.signal });
+    editor.append(form);
     return editor;
   }
 
@@ -367,9 +468,11 @@ class SineWebPanels {
     submit.disabled = !input.value.trim();
     error.hidden = true;
     this.#editor.hidden = false;
-    this.#positionPopup(this.#editor, anchor ?? this.#rail);
-    input.focus();
-    input.select();
+    this.#openEditorPopup(anchor ?? this.#rail);
+    this.window.requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
   }
 
   #saveEditor() {
@@ -396,6 +499,15 @@ class SineWebPanels {
   }
 
   #closeEditor() {
+    if (!this.#editor) {
+      return;
+    }
+
+    if (typeof this.#editor.hidePopup === "function" && this.#editor.state !== "closed") {
+      this.#editor.hidePopup();
+      return;
+    }
+
     this.#editor.hidden = true;
     this.#editorState = null;
   }
@@ -458,12 +570,14 @@ class SineWebPanels {
       this.#menu.append(button);
     }
     this.#menu.hidden = false;
+    this.#menuOpenedAt = this.window.performance.now();
     this.#menu.style.left = `${Math.min(x, this.window.innerWidth - 220)}px`;
     this.#menu.style.top = `${Math.min(y, this.window.innerHeight - 20)}px`;
   }
 
   #closeMenu() {
     this.#menu.hidden = true;
+    this.#menuOpenedAt = 0;
   }
 
   #deleteItem(id) {
@@ -618,6 +732,9 @@ class SineWebPanels {
   };
 
   #onDocumentClick = event => {
+    if (!this.#menu.hidden && this.window.performance.now() - this.#menuOpenedAt < 250) {
+      return;
+    }
     if (event.target.closest(`#${MENU_ID}`) || event.target.closest(`#${EDITOR_ID}`)) {
       return;
     }
@@ -635,16 +752,47 @@ class SineWebPanels {
     }
   };
 
-  #positionPopup(popup, anchor) {
-    const anchorRect = anchor.getBoundingClientRect();
-    popup.style.removeProperty("left");
-    popup.style.removeProperty("right");
-    popup.style.top = `${Math.max(8, anchorRect.bottom - popup.offsetHeight - 8)}px`;
-    if (this.#placementSide() === "right") {
-      popup.style.right = `${this.window.innerWidth - anchorRect.right}px`;
-    } else {
-      popup.style.left = `${anchorRect.left}px`;
+  #onTabContextMenuShowing = event => {
+    if (event.target.id !== "tabContextMenu" || !this.#tabContextMenuItem) {
+      return;
     }
+
+    const url = this.#contextTabUrl();
+    const isAvailable = this.#store.enabled && Boolean(url);
+    this.#tabContextMenuItem.hidden = false;
+    this.#tabContextMenuItem.disabled = !isAvailable;
+  };
+
+  #onAddTabToWebPanels = event => {
+    event.preventDefault();
+    const url = this.#contextTabUrl();
+    const panel = this.#store.createPanel(url);
+    if (!panel) {
+      return;
+    }
+
+    this.#store.insert(panel, this.#store.items.length);
+    this.#render();
+  };
+
+  #contextTabUrl() {
+    const tab =
+      this.window.TabContextMenu?.contextTab ??
+      this.window.gBrowser?.selectedTab ??
+      null;
+    const spec = tab?.linkedBrowser?.currentURI?.spec;
+    return normalizeWebPanelUrl(spec);
+  }
+
+  #openEditorPopup(anchor) {
+    if (typeof this.#editor.openPopup !== "function") {
+      return;
+    }
+
+    const position = this.#placementSide() === "right"
+      ? "leftcenter rightcenter"
+      : "rightcenter leftcenter";
+    this.#editor.openPopup(anchor, position, 0, 0, false, false);
   }
 
   #placementSide() {
@@ -688,22 +836,37 @@ class SineWebPanels {
 
   #el(tagName, attrs = {}, text = null) {
     const element = this.document.createElement(tagName);
+    this.#setAttributes(element, attrs);
+    if (text) {
+      element.textContent = text;
+    }
+    return element;
+  }
+
+  #xul(tagName, attrs = {}) {
+    const element = typeof this.document.createXULElement === "function"
+      ? this.document.createXULElement(tagName)
+      : this.document.createElementNS(
+        "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul",
+        tagName
+      );
+    this.#setAttributes(element, attrs);
+    return element;
+  }
+
+  #setAttributes(element, attrs = {}) {
     for (const [name, value] of Object.entries(attrs)) {
       if (value === null || value === undefined || value === false) {
         continue;
       }
-      if (name === "class") {
-        element.className = value;
+      if (name === "class" || name === "className") {
+        element.setAttribute("class", String(value));
       } else if (name === "hidden" && value === "true") {
         element.hidden = true;
       } else {
         element.setAttribute(name, String(value));
       }
     }
-    if (text) {
-      element.textContent = text;
-    }
-    return element;
   }
 }
 

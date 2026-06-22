@@ -1,21 +1,94 @@
 #sine-web-panels-root {
-  --sine-web-panels-rail-size: 36px;
+  --sine-web-panels-rail-size: 40px;
   --sine-web-panels-button-size: 32px;
   --sine-web-panels-icon-size: 18px;
-  --sine-web-panels-gap: 8px;
+  --sine-web-panels-gap: 6px;
   --sine-web-panels-min-width: 320px;
   --sine-web-panels-width: 420px;
   --sine-web-panels-animation-duration: 75ms;
-  --sine-web-panels-surface: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 72%, transparent);
-  --sine-web-panels-surface-strong: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 88%, transparent);
-  --sine-web-panels-border: color-mix(in srgb, currentColor 18%, transparent);
-  --sine-web-panels-hover: color-mix(in srgb, currentColor 10%, transparent);
-  --sine-web-panels-active: color-mix(in srgb, currentColor 16%, transparent);
+  --sine-web-panels-surface: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 32%, transparent);
+  --sine-web-panels-surface-strong: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 78%, transparent);
+  --sine-web-panels-panel-base: light-dark(
+    rgb(244, 244, 244),
+    color-mix(in srgb, var(--zen-main-browser-background, rgb(31, 31, 31)) 70%, rgb(18, 18, 18) 30%)
+  );
+  --sine-web-panels-panel-background: color-mix(
+    in srgb,
+    var(--sine-web-panels-panel-base) 82%,
+    transparent
+  );
+  --sine-web-panels-panel-color: light-dark(rgb(38, 38, 38), rgb(245, 245, 245));
+  --sine-web-panels-panel-muted-color: color-mix(
+    in srgb,
+    var(--sine-web-panels-panel-color) 66%,
+    transparent
+  );
+  --sine-web-panels-panel-muted-background: color-mix(
+    in srgb,
+    var(--sine-web-panels-panel-color) 8%,
+    transparent
+  );
+  --sine-web-panels-border: color-mix(in srgb, currentColor 14%, transparent);
+  --sine-web-panels-panel-border: color-mix(
+    in srgb,
+    var(--sine-web-panels-panel-color) 24%,
+    transparent
+  );
+  --sine-web-panels-panel-radius: var(--panel-border-radius, 12px);
+  --sine-web-panels-hover: var(
+    --toolbarbutton-hover-background,
+    color-mix(in srgb, currentColor 10%, transparent)
+  );
+  --sine-web-panels-active: var(
+    --toolbarbutton-active-background,
+    color-mix(in srgb, currentColor 16%, transparent)
+  );
   --sine-web-panels-shadow: 0 16px 42px color-mix(in srgb, black 28%, transparent);
+  color-scheme: light dark;
   position: fixed;
   inset-block: var(--sine-web-panels-gap);
   z-index: 9999;
   pointer-events: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  #sine-web-panels-root {
+    --sine-web-panels-panel-base: color-mix(
+      in srgb,
+      var(--zen-main-browser-background, rgb(32, 31, 36)) 72%,
+      rgb(24, 24, 27) 28%
+    );
+    --sine-web-panels-panel-color: rgb(245, 245, 247);
+    --sine-web-panels-panel-muted-color: color-mix(
+      in srgb,
+      var(--sine-web-panels-panel-color) 68%,
+      transparent
+    );
+    --sine-web-panels-panel-muted-background: color-mix(
+      in srgb,
+      var(--sine-web-panels-panel-color) 9%,
+      transparent
+    );
+    --sine-web-panels-panel-border: color-mix(
+      in srgb,
+      var(--sine-web-panels-panel-color) 24%,
+      transparent
+    );
+  }
+}
+
+#browser[sine-web-panels-side="right"] > #zen-appcontent-wrapper,
+#browser[sine-web-panels-side="right"] > #zen-tabbox-wrapper,
+#browser[sine-web-panels-side="right"] > #tabbrowser-tabbox,
+#browser[sine-web-panels-side="right"] > #appcontent {
+  margin-inline-end: var(--sine-web-panels-reserved-inline-size) !important;
+}
+
+#browser[sine-web-panels-side="left"] > #zen-appcontent-wrapper,
+#browser[sine-web-panels-side="left"] > #zen-tabbox-wrapper,
+#browser[sine-web-panels-side="left"] > #tabbrowser-tabbox,
+#browser[sine-web-panels-side="left"] > #appcontent {
+  margin-inline-start: var(--sine-web-panels-reserved-inline-size) !important;
 }
 
 #sine-web-panels-root[side="right"] {
@@ -53,12 +126,12 @@
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding-block: 6px;
-  border: 1px solid color-mix(in srgb, currentColor 8%, transparent);
-  border-radius: calc(var(--sine-web-panels-rail-size) / 2);
-  background: var(--sine-web-panels-surface);
-  backdrop-filter: blur(18px) saturate(130%);
-  color: var(--toolbar-color, currentColor);
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+  color: var(--toolbar-color, var(--zen-colors-primary, currentColor));
   pointer-events: auto;
 }
 
@@ -84,22 +157,40 @@
 
 .sine-web-panels-item,
 #sine-web-panels-add-button {
+  appearance: none;
   box-sizing: border-box;
   width: var(--sine-web-panels-button-size);
   min-width: var(--sine-web-panels-button-size);
   height: var(--sine-web-panels-button-size);
   min-height: var(--sine-web-panels-button-size);
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--toolbarbutton-border-radius, 8px);
   margin: 0;
   padding: 0;
-  color: inherit;
+  color: var(--toolbarbutton-icon-fill, inherit);
   background: transparent;
-  font: menu;
+  font: inherit;
   line-height: 1;
+  text-align: center;
   pointer-events: auto;
+}
+
+#sine-web-panels-add-button {
+  font-size: 0;
+  font-weight: 400;
+  -moz-context-properties: fill;
+}
+
+#sine-web-panels-add-button::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  display: block;
+  background-color: currentColor;
+  mask: url("chrome://browser/skin/zen-icons/plus.svg") center / 16px 16px no-repeat;
 }
 
 .sine-web-panels-panel-button:hover,
@@ -121,6 +212,7 @@
 .sine-web-panels-favicon {
   width: var(--sine-web-panels-icon-size);
   height: var(--sine-web-panels-icon-size);
+  display: block;
   object-fit: contain;
 }
 
@@ -239,71 +331,94 @@
 }
 
 #sine-web-panels-editor {
+  appearance: none;
+  -moz-appearance: none;
   box-sizing: border-box;
-  position: fixed;
-  z-index: 10001;
+  --sine-web-panels-panel-color: var(--arrowpanel-color, CanvasText);
+  color: var(--sine-web-panels-panel-color);
+  font: menu;
+}
+
+#sine-web-panels-editor-content {
+  box-sizing: border-box;
   width: min(520px, calc(100vw - 32px));
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;
   gap: 8px;
   align-items: center;
-  padding: 12px;
-  border: 1px solid var(--sine-web-panels-border);
-  border-radius: 14px;
-  background: var(--sine-web-panels-surface-strong);
-  box-shadow: var(--sine-web-panels-shadow);
-  backdrop-filter: blur(20px) saturate(130%);
-  pointer-events: auto;
-}
-
-#sine-web-panels-editor::after {
-  content: "";
-  position: absolute;
-  bottom: -8px;
-  width: 14px;
-  height: 14px;
-  rotate: 45deg;
-  border-block-end: 1px solid var(--sine-web-panels-border);
-  border-inline-end: 1px solid var(--sine-web-panels-border);
-  background: var(--sine-web-panels-surface-strong);
-}
-
-#sine-web-panels-root[side="right"] #sine-web-panels-editor::after {
-  right: 16px;
-}
-
-#sine-web-panels-root[side="left"] #sine-web-panels-editor::after {
-  left: 16px;
-}
-
-#sine-web-panels-url-input {
-  min-width: 0;
-  border: 0;
-  border-radius: 9px;
-  padding: 8px 10px;
+  padding: 6px;
   color: inherit;
-  background: color-mix(in srgb, currentColor 8%, transparent);
   font: menu;
 }
 
+#sine-web-panels-url-input {
+  appearance: none;
+  -moz-appearance: none;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 32px;
+  border: 0;
+  border-radius: var(--border-radius-medium, 8px);
+  margin: 0;
+  padding: 0 8px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  outline: none;
+  box-shadow: none;
+  caret-color: currentColor;
+}
+
+#sine-web-panels-url-input:hover {
+  background: var(
+    --button-background-color-ghost-hover,
+    color-mix(in srgb, currentColor 10%, transparent)
+  );
+}
+
 #sine-web-panels-url-input:focus {
-  outline: 2px solid color-mix(in srgb, AccentColor 65%, transparent);
-  outline-offset: 1px;
+  background: var(
+    --button-background-color-ghost-hover,
+    color-mix(in srgb, currentColor 10%, transparent)
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
 }
 
 .sine-web-panels-ghost-button,
 .sine-web-panels-menu-item {
+  appearance: none;
+  -moz-appearance: none;
+  box-sizing: border-box;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
   border: 0;
-  border-radius: 9px;
-  padding: 8px 10px;
+  border-radius: var(--border-radius-medium, 8px);
+  margin: 0;
+  padding: 0 10px;
   color: inherit;
+  -moz-context-properties: fill, stroke;
   background: transparent;
-  font: menu;
+  font: inherit;
+  line-height: 1;
+  text-align: start;
 }
 
 .sine-web-panels-ghost-button:not(:disabled):hover,
 .sine-web-panels-menu-item:not(:disabled):hover {
-  background: var(--sine-web-panels-hover);
+  background: var(
+    --button-background-color-ghost-hover,
+    color-mix(in srgb, var(--sine-web-panels-panel-color) 10%, transparent)
+  );
+}
+
+.sine-web-panels-ghost-button:not(:disabled):active,
+.sine-web-panels-menu-item:not(:disabled):active {
+  background: var(
+    --button-background-color-ghost-active,
+    color-mix(in srgb, var(--sine-web-panels-panel-color) 14%, transparent)
+  );
 }
 
 .sine-web-panels-ghost-button:disabled,
@@ -318,17 +433,25 @@
 }
 
 #sine-web-panels-menu {
+  appearance: none;
+  -moz-appearance: none;
+  box-sizing: border-box;
   position: fixed;
   z-index: 10002;
   min-width: 190px;
   display: flex;
   flex-direction: column;
+  gap: 2px;
   padding: 6px;
-  border: 1px solid var(--sine-web-panels-border);
-  border-radius: 12px;
-  background: var(--sine-web-panels-surface-strong);
-  box-shadow: var(--sine-web-panels-shadow);
-  backdrop-filter: blur(20px) saturate(130%);
+  border: 1px solid var(--sine-web-panels-panel-border);
+  border-radius: var(--sine-web-panels-panel-radius);
+  background: var(--sine-web-panels-panel-background);
+  color: var(--sine-web-panels-panel-color);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, white 4%, transparent) inset,
+    var(--windows-panel-box-shadow, var(--sine-web-panels-shadow));
+  backdrop-filter: blur(24px) saturate(140%) brightness(1.08);
+  font: menu;
   pointer-events: auto;
 }
 
@@ -343,6 +466,7 @@
 #sine-web-panels-menu .sine-web-panels-menu-item {
   width: 100%;
   text-align: start;
+  white-space: nowrap;
 }
 
 @keyframes sine-web-panels-open-right {
