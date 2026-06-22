@@ -1,33 +1,94 @@
 #sine-web-panels-root {
   --sine-web-panels-rail-size: 36px;
+  --sine-web-panels-button-size: 32px;
+  --sine-web-panels-icon-size: 18px;
   --sine-web-panels-gap: 8px;
-  --sine-web-panels-surface: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 70%, transparent);
-  --sine-web-panels-button-hover: color-mix(in srgb, currentColor 10%, transparent);
+  --sine-web-panels-min-width: 320px;
+  --sine-web-panels-width: 420px;
+  --sine-web-panels-animation-duration: 75ms;
+  --sine-web-panels-surface: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 72%, transparent);
+  --sine-web-panels-surface-strong: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 88%, transparent);
+  --sine-web-panels-border: color-mix(in srgb, currentColor 18%, transparent);
+  --sine-web-panels-hover: color-mix(in srgb, currentColor 10%, transparent);
+  --sine-web-panels-active: color-mix(in srgb, currentColor 16%, transparent);
+  --sine-web-panels-shadow: 0 16px 42px color-mix(in srgb, black 28%, transparent);
   position: fixed;
   inset-block: var(--sine-web-panels-gap);
-  inset-inline-end: var(--sine-web-panels-gap);
-  z-index: 1000;
+  z-index: 9999;
   pointer-events: none;
+}
+
+#sine-web-panels-root[side="right"] {
+  inset-inline-end: var(--sine-web-panels-gap);
+}
+
+#sine-web-panels-root[side="left"] {
+  inset-inline-start: var(--sine-web-panels-gap);
+}
+
+#sine-web-panels-root[disabled] {
+  display: none;
+}
+
+#sine-web-panels-backdrop {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  pointer-events: auto;
+}
+
+#sine-web-panels-backdrop[hidden],
+#sine-web-panels-shell[hidden],
+#sine-web-panels-editor[hidden],
+#sine-web-panels-menu[hidden] {
+  display: none;
 }
 
 #sine-web-panels-rail {
   box-sizing: border-box;
+  position: fixed;
+  inset-block: var(--sine-web-panels-gap);
   width: var(--sine-web-panels-rail-size);
-  min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  padding-block: var(--sine-web-panels-gap);
+  gap: 6px;
+  padding-block: 6px;
+  border: 1px solid color-mix(in srgb, currentColor 8%, transparent);
   border-radius: calc(var(--sine-web-panels-rail-size) / 2);
   background: var(--sine-web-panels-surface);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(18px) saturate(130%);
+  color: var(--toolbar-color, currentColor);
   pointer-events: auto;
 }
 
+#sine-web-panels-root[side="right"] #sine-web-panels-rail {
+  inset-inline-end: var(--sine-web-panels-gap);
+}
+
+#sine-web-panels-root[side="left"] #sine-web-panels-rail {
+  inset-inline-start: var(--sine-web-panels-gap);
+}
+
+#sine-web-panels-list {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden auto;
+  scrollbar-width: none;
+}
+
+.sine-web-panels-item,
 #sine-web-panels-add-button {
-  width: var(--sine-web-panels-rail-size);
-  height: var(--sine-web-panels-rail-size);
+  box-sizing: border-box;
+  width: var(--sine-web-panels-button-size);
+  min-width: var(--sine-web-panels-button-size);
+  height: var(--sine-web-panels-button-size);
+  min-height: var(--sine-web-panels-button-size);
   display: grid;
   place-items: center;
   border: 0;
@@ -36,11 +97,284 @@
   padding: 0;
   color: inherit;
   background: transparent;
-  font: inherit;
+  font: menu;
   line-height: 1;
-  cursor: default;
+  pointer-events: auto;
 }
 
+.sine-web-panels-panel-button:hover,
 #sine-web-panels-add-button:hover {
-  background: var(--sine-web-panels-button-hover);
+  background: var(--sine-web-panels-hover);
+}
+
+.sine-web-panels-panel-button[active],
+.sine-web-panels-panel-button:active,
+#sine-web-panels-add-button:active {
+  background: var(--sine-web-panels-active);
+}
+
+.sine-web-panels-panel-button[dragging],
+.sine-web-panels-separator[dragging] {
+  opacity: 0.45;
+}
+
+.sine-web-panels-favicon {
+  width: var(--sine-web-panels-icon-size);
+  height: var(--sine-web-panels-icon-size);
+  object-fit: contain;
+}
+
+.sine-web-panels-favicon[fallback] {
+  display: none;
+}
+
+.sine-web-panels-favicon[fallback] + .sine-web-panels-badge,
+.sine-web-panels-panel-button:has(.sine-web-panels-favicon[fallback])::before {
+  content: "";
+  width: var(--sine-web-panels-icon-size);
+  height: var(--sine-web-panels-icon-size);
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.75;
+}
+
+.sine-web-panels-badge {
+  position: absolute;
+  min-width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  padding-inline: 3px;
+  border-radius: 999px;
+  translate: 11px -11px;
+  background: #e5484d;
+  color: white;
+  font: 10px/1 sans-serif;
+  font-weight: 700;
+}
+
+.sine-web-panels-separator {
+  height: 14px;
+  min-height: 14px;
+  cursor: grab;
+}
+
+.sine-web-panels-separator span {
+  width: 18px;
+  height: 1px;
+  border-radius: 1px;
+  background: color-mix(in srgb, currentColor 34%, transparent);
+}
+
+#sine-web-panels-drop-indicator {
+  position: absolute;
+  inset-inline: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: AccentColor;
+  pointer-events: none;
+}
+
+#sine-web-panels-shell {
+  box-sizing: border-box;
+  position: fixed;
+  inset-block: var(--sine-web-panels-gap);
+  width: max(var(--sine-web-panels-min-width), var(--sine-web-panels-width));
+  min-width: var(--sine-web-panels-min-width);
+  display: flex;
+  border: 1px solid var(--sine-web-panels-border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--sine-web-panels-surface-strong);
+  box-shadow: var(--sine-web-panels-shadow);
+  backdrop-filter: blur(20px) saturate(130%);
+  pointer-events: auto;
+}
+
+#sine-web-panels-root[side="right"] #sine-web-panels-shell {
+  inset-inline-end: calc(var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2);
+  animation: sine-web-panels-open-right var(--sine-web-panels-animation-duration) ease-out;
+}
+
+#sine-web-panels-root[side="left"] #sine-web-panels-shell {
+  inset-inline-start: calc(var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2);
+  animation: sine-web-panels-open-left var(--sine-web-panels-animation-duration) ease-out;
+}
+
+#sine-web-panels-root[switching] #sine-web-panels-shell,
+#sine-web-panels-root[resizing] #sine-web-panels-shell {
+  animation: none;
+}
+
+#sine-web-panels-root[closing][side="right"] #sine-web-panels-shell {
+  animation: sine-web-panels-close-right var(--sine-web-panels-animation-duration) ease-in forwards;
+}
+
+#sine-web-panels-root[closing][side="left"] #sine-web-panels-shell {
+  animation: sine-web-panels-close-left var(--sine-web-panels-animation-duration) ease-in forwards;
+}
+
+#sine-web-panels-resizer {
+  width: 8px;
+  min-width: 8px;
+  cursor: ew-resize;
+  background: transparent;
+}
+
+#sine-web-panels-resizer:hover,
+#sine-web-panels-root[resizing] #sine-web-panels-resizer {
+  background: color-mix(in srgb, AccentColor 35%, transparent);
+}
+
+#sine-web-panels-surface {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  background: Canvas;
+}
+
+.sine-web-panels-browser {
+  min-width: 0;
+  flex: 1;
+}
+
+#sine-web-panels-editor {
+  box-sizing: border-box;
+  position: fixed;
+  z-index: 10001;
+  width: min(520px, calc(100vw - 32px));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 8px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--sine-web-panels-border);
+  border-radius: 14px;
+  background: var(--sine-web-panels-surface-strong);
+  box-shadow: var(--sine-web-panels-shadow);
+  backdrop-filter: blur(20px) saturate(130%);
+  pointer-events: auto;
+}
+
+#sine-web-panels-editor::after {
+  content: "";
+  position: absolute;
+  bottom: -8px;
+  width: 14px;
+  height: 14px;
+  rotate: 45deg;
+  border-block-end: 1px solid var(--sine-web-panels-border);
+  border-inline-end: 1px solid var(--sine-web-panels-border);
+  background: var(--sine-web-panels-surface-strong);
+}
+
+#sine-web-panels-root[side="right"] #sine-web-panels-editor::after {
+  right: 16px;
+}
+
+#sine-web-panels-root[side="left"] #sine-web-panels-editor::after {
+  left: 16px;
+}
+
+#sine-web-panels-url-input {
+  min-width: 0;
+  border: 0;
+  border-radius: 9px;
+  padding: 8px 10px;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font: menu;
+}
+
+#sine-web-panels-url-input:focus {
+  outline: 2px solid color-mix(in srgb, AccentColor 65%, transparent);
+  outline-offset: 1px;
+}
+
+.sine-web-panels-ghost-button,
+.sine-web-panels-menu-item {
+  border: 0;
+  border-radius: 9px;
+  padding: 8px 10px;
+  color: inherit;
+  background: transparent;
+  font: menu;
+}
+
+.sine-web-panels-ghost-button:not(:disabled):hover,
+.sine-web-panels-menu-item:not(:disabled):hover {
+  background: var(--sine-web-panels-hover);
+}
+
+.sine-web-panels-ghost-button:disabled,
+.sine-web-panels-menu-item:disabled {
+  opacity: 0.45;
+}
+
+#sine-web-panels-editor-error {
+  grid-column: 1 / -1;
+  color: #e5484d;
+  font: 12px/1.3 sans-serif;
+}
+
+#sine-web-panels-menu {
+  position: fixed;
+  z-index: 10002;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid var(--sine-web-panels-border);
+  border-radius: 12px;
+  background: var(--sine-web-panels-surface-strong);
+  box-shadow: var(--sine-web-panels-shadow);
+  backdrop-filter: blur(20px) saturate(130%);
+  pointer-events: auto;
+}
+
+#sine-web-panels-menu hr {
+  width: 100%;
+  height: 1px;
+  border: 0;
+  margin: 5px 0;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+#sine-web-panels-menu .sine-web-panels-menu-item {
+  width: 100%;
+  text-align: start;
+}
+
+@keyframes sine-web-panels-open-right {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+@keyframes sine-web-panels-open-left {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+
+@keyframes sine-web-panels-close-right {
+  to {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+@keyframes sine-web-panels-close-left {
+  to {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #sine-web-panels-shell {
+    animation: none !important;
+  }
 }
