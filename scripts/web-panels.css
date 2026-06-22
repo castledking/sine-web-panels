@@ -1,0 +1,46 @@
+#sine-web-panels-root {
+  --sine-web-panels-rail-size: 36px;
+  --sine-web-panels-gap: 8px;
+  --sine-web-panels-surface: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 70%, transparent);
+  --sine-web-panels-button-hover: color-mix(in srgb, currentColor 10%, transparent);
+  position: fixed;
+  inset-block: var(--sine-web-panels-gap);
+  inset-inline-end: var(--sine-web-panels-gap);
+  z-index: 1000;
+  pointer-events: none;
+}
+
+#sine-web-panels-rail {
+  box-sizing: border-box;
+  width: var(--sine-web-panels-rail-size);
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-block: var(--sine-web-panels-gap);
+  border-radius: calc(var(--sine-web-panels-rail-size) / 2);
+  background: var(--sine-web-panels-surface);
+  backdrop-filter: blur(16px);
+  pointer-events: auto;
+}
+
+#sine-web-panels-add-button {
+  width: var(--sine-web-panels-rail-size);
+  height: var(--sine-web-panels-rail-size);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  line-height: 1;
+  cursor: default;
+}
+
+#sine-web-panels-add-button:hover {
+  background: var(--sine-web-panels-button-hover);
+}

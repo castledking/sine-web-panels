@@ -1,0 +1,15 @@
+[
+  {
+    "type": "checkbox",
+    "label": "Enable Web Panels",
+    "property": "sine.web-panels.enabled",
+    "defaultValue": true
+  },
+  {
+    "type": "string",
+    "label": "Panel width",
+    "property": "sine.web-panels.width",
+    "defaultValue": "420",
+    "placeholder": "420"
+  }
+]
