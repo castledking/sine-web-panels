@@ -161,7 +161,11 @@ class SineWebPanels {
       event.stopPropagation();
       this.#openEditor({ mode: "add", anchor: addButton, insertIndex: this.#items.length });
     }, { signal });
-    this.#backdrop.addEventListener("click", () => this.#closePanel(), { signal });
+    this.#backdrop.addEventListener("click", event => {
+      if (!this.#isPointInsideActivePanel(event.clientX, event.clientY)) {
+        this.#closePanel();
+      }
+    }, { signal });
     this.#rail.addEventListener("contextmenu", this.#onRailContextMenu, { signal });
     this.#resizer.addEventListener("pointerdown", this.#onResizeStart, { signal });
     this.window.addEventListener("pointermove", this.#onPointerMove, { signal });
@@ -485,6 +489,21 @@ class SineWebPanels {
     this.document
       .querySelectorAll('browser[sine-web-panel-selected="true"]')
       .forEach(browser => browser.removeAttribute("sine-web-panel-selected"));
+  }
+
+  #isPointInsideActivePanel(clientX, clientY) {
+    const panelElement = this.#surfaceState?.panelContainer?.querySelector(".browserContainer");
+    if (!panelElement) {
+      return false;
+    }
+
+    const rect = panelElement.getBoundingClientRect();
+    return (
+      clientX >= rect.left &&
+      clientX <= rect.right &&
+      clientY >= rect.top &&
+      clientY <= rect.bottom
+    );
   }
 
   #bindBrowserTitle(item, browser) {

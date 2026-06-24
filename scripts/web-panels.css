@@ -117,8 +117,21 @@
 #sine-web-panels-backdrop {
   position: fixed;
   inset: 0;
+  z-index: 0;
   background: transparent;
   pointer-events: auto;
+}
+
+#sine-web-panels-root[side="right"] #sine-web-panels-backdrop {
+  inset-inline-end: calc(
+    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width)
+  );
+}
+
+#sine-web-panels-root[side="left"] #sine-web-panels-backdrop {
+  inset-inline-start: calc(
+    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width)
+  );
 }
 
 #sine-web-panels-backdrop[hidden],
