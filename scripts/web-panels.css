@@ -1,3 +1,14 @@
+:root {
+  --sine-web-panels-rail-size: 40px;
+  --sine-web-panels-gap: 6px;
+  --sine-web-panels-min-width: 320px;
+  --sine-web-panels-width: 420px;
+  --sine-web-panels-animation-duration: 75ms;
+  --sine-web-panels-surface-strong: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 78%, transparent);
+  --sine-web-panels-border: color-mix(in srgb, currentColor 14%, transparent);
+  --sine-web-panels-shadow: 0 16px 42px color-mix(in srgb, black 28%, transparent);
+}
+
 #sine-web-panels-root {
   --sine-web-panels-rail-size: 40px;
   --sine-web-panels-button-size: 32px;
@@ -111,10 +122,14 @@
 }
 
 #sine-web-panels-backdrop[hidden],
-#sine-web-panels-shell[hidden],
+#sine-web-panels-resizer[hidden],
 #sine-web-panels-editor[hidden],
 #sine-web-panels-menu[hidden] {
   display: none;
+}
+
+tab[sine-web-panel-tab="true"] {
+  display: none !important;
 }
 
 #sine-web-panels-rail {
@@ -267,13 +282,51 @@
   pointer-events: none;
 }
 
-#sine-web-panels-shell {
-  box-sizing: border-box;
+#sine-web-panels-resizer {
   position: fixed;
   inset-block: var(--sine-web-panels-gap);
-  width: max(var(--sine-web-panels-min-width), var(--sine-web-panels-width));
-  min-width: var(--sine-web-panels-min-width);
-  display: flex;
+  width: 8px;
+  z-index: 10001;
+  cursor: ew-resize;
+  background: transparent;
+  pointer-events: auto;
+}
+
+:root[sine-web-panels-side="right"] #sine-web-panels-resizer {
+  inset-inline-end: calc(
+    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width) - 4px
+  );
+}
+
+:root[sine-web-panels-side="left"] #sine-web-panels-resizer {
+  inset-inline-start: calc(
+    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width) - 4px
+  );
+}
+
+#sine-web-panels-resizer:hover,
+#sine-web-panels-root[resizing] #sine-web-panels-resizer {
+  background: color-mix(in srgb, AccentColor 35%, transparent);
+}
+
+.browserSidebarContainer.sine-web-panels-parent-background {
+  box-shadow: none !important;
+}
+
+.browserSidebarContainer.sine-web-panels-overlay {
+  overflow: visible !important;
+  visibility: inherit !important;
+  z-index: 10000 !important;
+  pointer-events: none;
+  box-shadow: none !important;
+}
+
+.browserSidebarContainer.sine-web-panels-overlay .browserContainer {
+  box-sizing: border-box;
+  position: fixed !important;
+  inset-block: var(--sine-web-panels-gap) !important;
+  width: max(var(--sine-web-panels-min-width), var(--sine-web-panels-width)) !important;
+  min-width: var(--sine-web-panels-min-width) !important;
   border: 1px solid var(--sine-web-panels-border);
   border-radius: 14px;
   overflow: hidden;
@@ -283,51 +336,41 @@
   pointer-events: auto;
 }
 
-#sine-web-panels-root[side="right"] #sine-web-panels-shell {
-  inset-inline-end: calc(var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2);
+:root[sine-web-panels-side="right"] .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
+  inset-inline-end: calc(var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2) !important;
   animation: sine-web-panels-open-right var(--sine-web-panels-animation-duration) ease-out;
 }
 
-#sine-web-panels-root[side="left"] #sine-web-panels-shell {
-  inset-inline-start: calc(var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2);
+:root[sine-web-panels-side="left"] .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
+  inset-inline-start: calc(var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2) !important;
   animation: sine-web-panels-open-left var(--sine-web-panels-animation-duration) ease-out;
 }
 
-#sine-web-panels-root[switching] #sine-web-panels-shell,
-#sine-web-panels-root[resizing] #sine-web-panels-shell {
+#sine-web-panels-root[switching] ~ .browserSidebarContainer.sine-web-panels-overlay .browserContainer,
+#sine-web-panels-root[resizing] ~ .browserSidebarContainer.sine-web-panels-overlay .browserContainer,
+:root:has(#sine-web-panels-root[switching]) .browserSidebarContainer.sine-web-panels-overlay .browserContainer,
+:root:has(#sine-web-panels-root[resizing]) .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
   animation: none;
 }
 
-#sine-web-panels-root[closing][side="right"] #sine-web-panels-shell {
+:root:has(#sine-web-panels-root[closing][side="right"]) .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
   animation: sine-web-panels-close-right var(--sine-web-panels-animation-duration) ease-in forwards;
 }
 
-#sine-web-panels-root[closing][side="left"] #sine-web-panels-shell {
+:root:has(#sine-web-panels-root[closing][side="left"]) .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
   animation: sine-web-panels-close-left var(--sine-web-panels-animation-duration) ease-in forwards;
 }
 
-#sine-web-panels-resizer {
-  width: 8px;
-  min-width: 8px;
-  cursor: ew-resize;
-  background: transparent;
+:root:has(#sine-web-panels-root[resizing]) .browserSidebarContainer.sine-web-panels-overlay browser {
+  pointer-events: none;
 }
 
-#sine-web-panels-resizer:hover,
-#sine-web-panels-root[resizing] #sine-web-panels-resizer {
-  background: color-mix(in srgb, AccentColor 35%, transparent);
-}
-
-#sine-web-panels-surface {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  background: Canvas;
-}
-
-.sine-web-panels-browser {
-  min-width: 0;
-  flex: 1;
+.browserSidebarContainer.sine-web-panels-overlay .browserStack,
+.browserSidebarContainer.sine-web-panels-overlay browser {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
 }
 
 #sine-web-panels-editor {
@@ -498,7 +541,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #sine-web-panels-shell {
+  .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
     animation: none !important;
   }
 }
