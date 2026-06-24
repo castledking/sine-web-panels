@@ -1,8 +1,10 @@
 # Web Panels for Sine
 
-Web Panels is a Sine mod that adds a temporary web-app panel rail to Firefox-family browsers, optimized for Zen Browser first.
+Web Panels is a Sine mod that adds a temporary web-app panel rail to Zen Browser.
 
 The saved Zen Browser implementation is only a reference. This repository is a standalone Sine mod using `theme.json`, `userChrome.css`, and userChromeJS modules.
+
+![Web Panels preview](assets/preview.svg)
 
 ## Features
 
@@ -25,10 +27,10 @@ The saved Zen Browser implementation is only a reference. This repository is a s
 1. Install Sine for your browser.
 2. Open Sine Mods in browser settings.
 3. Add this repository as a custom/unpublished mod.
-4. Enable unsafe JavaScript if Sine requires it for local mods.
+4. Enable unsafe JavaScript if Sine requires it for local, non-store mods.
 5. Restart the browser if Sine does not hot-load chrome scripts.
 
-The mod is designed for Zen Browser first. It should load in Firefox-family browsers that support Sine chrome JavaScript, but non-Zen layouts may need additional styling validation.
+The mod is designed and currently advertised for Zen Browser. Other Firefox-family browsers may need layout-specific validation before being listed as supported.
 
 ## Preferences
 
@@ -54,10 +56,12 @@ Manual browser checks:
 - Open, close, resize, unload, reorder, and delete panels.
 - Disable the mod and confirm the rail, panel browsers, and listeners unload.
 
-## Screenshots Checklist
+## Store Submission
 
-- Rail with multiple favicon items.
-- Add URL popup.
-- Floating panel open above page content.
-- Resizing panel.
-- Context menu and separator.
+The Sine store submission homepage is:
+
+```text
+https://github.com/dehyde/sine-web-panels
+```
+
+Store-origin installs should be able to run the included chrome JavaScript without requiring the local unsafe-JS toggle.
