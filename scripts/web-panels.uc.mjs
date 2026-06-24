@@ -30,6 +30,14 @@ function displayCount(count) {
   return Number.isInteger(count) && count > 0 ? (count > 99 ? "99+" : String(count)) : "";
 }
 
+function fallbackFaviconUrl(panelUrl) {
+  try {
+    return new URL("/favicon.ico", panelUrl).href;
+  } catch {
+    return "";
+  }
+}
+
 class SineWebPanels {
   #store = new WebPanelsStore();
   #root;
@@ -292,11 +300,7 @@ class SineWebPanels {
       alt: "",
       draggable: "false",
     });
-    icon.src = `page-icon:${item.url}`;
-    icon.addEventListener("error", () => {
-      icon.removeAttribute("src");
-      icon.setAttribute("fallback", "true");
-    }, { once: true });
+    this.#setFaviconSource(icon, item.url);
     button.append(icon);
     this.#applyUnreadBadge(button, item.id);
 
@@ -411,6 +415,20 @@ class SineWebPanels {
     button.append(this.#el("span", { class: "sine-web-panels-badge" }, badge));
   }
 
+  #setFaviconSource(icon, panelUrl) {
+    const fallbackUrl = fallbackFaviconUrl(panelUrl);
+    icon.src = `page-icon:${panelUrl}`;
+    icon.addEventListener("error", () => {
+      if (fallbackUrl && icon.src !== fallbackUrl) {
+        icon.src = fallbackUrl;
+        return;
+      }
+
+      icon.removeAttribute("src");
+      icon.setAttribute("fallback", "true");
+    });
+  }
+
   #buildEditor() {
     const editor = this.#xul("panel", {
       id: EDITOR_ID,
@@ -488,7 +506,7 @@ class SineWebPanels {
     if (this.#editorState?.mode === "edit") {
       const updated = this.#store.updatePanel(this.#editorState.itemId, url);
       if (updated) {
-        this.#runtime.unload(updated.id);
+        this.#unloadPanel(updated.id);
       }
     } else {
       this.#store.insert(this.#store.createPanel(url), this.#editorState?.insertIndex ?? this.#items.length);
@@ -523,7 +541,7 @@ class SineWebPanels {
           ["Move Up", () => this.#moveItem(item.id, index - 1), index <= 0],
           ["Move Down", () => this.#moveItem(item.id, index + 1), index >= this.#items.length - 1],
           ["separator"],
-          ["Unload Web Panel", () => this.#runtime.unload(item.id)],
+          ["Unload Web Panel", () => this.#unloadPanel(item.id)],
           ["Delete Web Panel", () => this.#deleteItem(item.id)],
         ]
       : [
@@ -581,13 +599,18 @@ class SineWebPanels {
   }
 
   #deleteItem(id) {
-    this.#runtime.unload(id);
+    this.#unloadPanel(id);
     this.#store.remove(id);
+    this.#unreadCounts.delete(id);
+    this.#render();
+  }
+
+  #unloadPanel(id) {
+    this.#runtime.unload(id);
+    this.#unreadCounts.delete(id);
     if (this.#activeId === id) {
       this.#closePanel({ animate: false });
     }
-    this.#unreadCounts.delete(id);
-    this.#render();
   }
 
   #moveItem(id, targetIndex) {
