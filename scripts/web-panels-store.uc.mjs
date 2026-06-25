@@ -1,12 +1,19 @@
 export const PANEL_TYPE = "panel";
-export const SEPARATOR_TYPE = "separator";
 export const MIN_PANEL_WIDTH = 320;
 export const DEFAULT_PANEL_WIDTH = 420;
 
 const PREFS = Object.freeze({
   enabled: "sine.web-panels.enabled",
+  compact: "sine.web-panels.compact",
   width: "sine.web-panels.width",
+  viewerWidth: "sine.web-panels.viewer-width",
+  maxViewerWidth: "sine.web-panels.max-viewer-width",
+  railWidth: "sine.web-panels.rail-width",
+  maxRailWidth: "sine.web-panels.max-rail-width",
+  textMinWidth: "sine.web-panels.text-min-width",
   items: "sine.web-panels.items",
+  panelWidths: "sine.web-panels.panel-widths",
+  workspaceId: "sine.web-panels.workspace-id",
 });
 
 function generateId(prefix = "item") {
@@ -75,10 +82,6 @@ function sanitizeItem(item) {
     return null;
   }
 
-  if (item.type === SEPARATOR_TYPE) {
-    return { type: SEPARATOR_TYPE, id };
-  }
-
   const url = normalizeWebPanelUrl(item.url);
   if (!url) {
     return null;
@@ -89,6 +92,7 @@ function sanitizeItem(item) {
     id,
     title: typeof item.title === "string" && item.title.trim() ? item.title.trim() : titleFromUrl(url),
     url,
+    workspaceId: typeof item.workspaceId === "string" ? item.workspaceId : "",
   };
 }
 
@@ -111,6 +115,14 @@ export class WebPanelsStore {
     Services.prefs.setBoolPref(PREFS.enabled, Boolean(value));
   }
 
+  get compact() {
+    return Services.prefs.getBoolPref(PREFS.compact, false);
+  }
+
+  set compact(value) {
+    Services.prefs.setBoolPref(PREFS.compact, Boolean(value));
+  }
+
   get width() {
     const value = Number.parseInt(readStringPref(PREFS.width, String(DEFAULT_PANEL_WIDTH)), 10);
     return Math.max(MIN_PANEL_WIDTH, Number.isFinite(value) ? value : DEFAULT_PANEL_WIDTH);
@@ -121,6 +133,56 @@ export class WebPanelsStore {
     setStringPref(PREFS.width, String(width));
   }
 
+  get viewerWidth() {
+    const value = Number.parseInt(readStringPref(PREFS.viewerWidth, String(DEFAULT_PANEL_WIDTH)), 10);
+    return Math.max(MIN_PANEL_WIDTH, Number.isFinite(value) ? value : DEFAULT_PANEL_WIDTH);
+  }
+
+  set viewerWidth(value) {
+    const width = Math.max(MIN_PANEL_WIDTH, Math.round(Number(value) || DEFAULT_PANEL_WIDTH));
+    setStringPref(PREFS.viewerWidth, String(width));
+  }
+
+  get maxViewerWidth() {
+    const value = Number.parseInt(readStringPref(PREFS.maxViewerWidth, "1920"), 10);
+    return Math.max(MIN_PANEL_WIDTH, Number.isFinite(value) ? value : 1920);
+  }
+
+  set maxViewerWidth(value) {
+    const width = Math.max(MIN_PANEL_WIDTH, Math.round(Number(value) || 1920));
+    setStringPref(PREFS.maxViewerWidth, String(width));
+  }
+
+  get railWidth() {
+    const value = Number.parseInt(readStringPref(PREFS.railWidth, "40"), 10);
+    return Math.max(24, Number.isFinite(value) ? value : 40);
+  }
+
+  set railWidth(value) {
+    const width = Math.max(24, Math.round(Number(value) || 40));
+    setStringPref(PREFS.railWidth, String(width));
+  }
+
+  get maxRailWidth() {
+    const value = Number.parseInt(readStringPref(PREFS.maxRailWidth, "260"), 10);
+    return Math.max(40, Number.isFinite(value) ? value : 260);
+  }
+
+  set maxRailWidth(value) {
+    const width = Math.max(40, Math.round(Number(value) || 260));
+    setStringPref(PREFS.maxRailWidth, String(width));
+  }
+
+  get textMinWidth() {
+    const value = Number.parseInt(readStringPref(PREFS.textMinWidth, "40"), 10);
+    return Math.max(24, Number.isFinite(value) ? value : 40);
+  }
+
+  set textMinWidth(value) {
+    const width = Math.max(24, Math.round(Number(value) || 40));
+    setStringPref(PREFS.textMinWidth, String(width));
+  }
+
   get items() {
     return this.loadItems();
   }
@@ -128,6 +190,47 @@ export class WebPanelsStore {
   set items(items) {
     const sanitized = Array.isArray(items) ? items.map(sanitizeItem).filter(Boolean) : [];
     setStringPref(PREFS.items, JSON.stringify(sanitized));
+  }
+
+  getPanelWidths() {
+    let parsed;
+    try {
+      parsed = JSON.parse(readStringPref(PREFS.panelWidths, "{}"));
+    } catch {
+      parsed = {};
+    }
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  }
+
+  getPanelWidth(id) {
+    const value = this.getPanelWidths()[id];
+    return Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+  }
+
+  setPanelWidth(id, width) {
+    if (!id || !Number.isFinite(width) || width <= 0) {
+      return;
+    }
+    const widths = this.getPanelWidths();
+    widths[id] = Math.round(width);
+    setStringPref(PREFS.panelWidths, JSON.stringify(widths));
+  }
+
+  clearPanelWidth(id) {
+    const widths = this.getPanelWidths();
+    if (!(id in widths)) {
+      return;
+    }
+    delete widths[id];
+    setStringPref(PREFS.panelWidths, JSON.stringify(widths));
+  }
+
+  get workspaceId() {
+    return readStringPref(PREFS.workspaceId, "");
+  }
+
+  set workspaceId(value) {
+    setStringPref(PREFS.workspaceId, String(value));
   }
 
   loadItems({ persistNormalized = false } = {}) {
@@ -149,7 +252,7 @@ export class WebPanelsStore {
     return sanitized;
   }
 
-  createPanel(rawUrl) {
+  createPanel(rawUrl, title, workspaceId = "") {
     const url = normalizeWebPanelUrl(rawUrl);
     if (!url) {
       return null;
@@ -157,15 +260,9 @@ export class WebPanelsStore {
     return {
       type: PANEL_TYPE,
       id: generateId("panel"),
-      title: titleFromUrl(url),
+      title: (title || "").trim() || titleFromUrl(url),
       url,
-    };
-  }
-
-  createSeparator() {
-    return {
-      type: SEPARATOR_TYPE,
-      id: generateId("separator"),
+      workspaceId: typeof workspaceId === "string" ? workspaceId : "",
     };
   }
 
@@ -193,6 +290,19 @@ export class WebPanelsStore {
       ...nextItems[index],
       title: titleFromUrl(url),
       url,
+    };
+    this.items = nextItems;
+    return nextItems[index];
+  }
+
+  renamePanel(id, title) {
+    const nextItems = this.items;
+    const index = nextItems.findIndex(item => item.id === id && item.type === PANEL_TYPE);
+    if (index < 0) return null;
+
+    nextItems[index] = {
+      ...nextItems[index],
+      title: String(title ?? "").trim() || nextItems[index].title,
     };
     this.items = nextItems;
     return nextItems[index];

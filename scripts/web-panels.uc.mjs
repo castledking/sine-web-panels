@@ -2,7 +2,6 @@ import { WebPanelsRuntime } from "./web-panels-runtime.uc.mjs";
 import {
   MIN_PANEL_WIDTH,
   PANEL_TYPE,
-  SEPARATOR_TYPE,
   WebPanelsStore,
   normalizeWebPanelUrl,
   parseWebPanelUnreadCount,
@@ -15,27 +14,15 @@ const ADD_BUTTON_ID = "sine-web-panels-add-button";
 const BACKDROP_ID = "sine-web-panels-backdrop";
 const MENU_ID = "sine-web-panels-menu";
 const EDITOR_ID = "sine-web-panels-editor";
+const SETTINGS_ID = "sine-web-panels-settings";
 const TAB_MENU_ITEM_ID = "sine-web-panels-tab-context-add";
-const RESIZER_ID = "sine-web-panels-resizer";
 
 function isPanel(item) {
   return item?.type === PANEL_TYPE;
 }
 
-function isSeparator(item) {
-  return item?.type === SEPARATOR_TYPE;
-}
-
 function displayCount(count) {
   return Number.isInteger(count) && count > 0 ? (count > 99 ? "99+" : String(count)) : "";
-}
-
-function fallbackFaviconUrl(panelUrl) {
-  try {
-    return new URL("/favicon.ico", panelUrl).href;
-  } catch {
-    return "";
-  }
 }
 
 class SineWebPanels {
@@ -43,27 +30,38 @@ class SineWebPanels {
   #root;
   #rail;
   #list;
-  #resizer;
+  #surface;
+  #surfaceShell;
   #backdrop;
   #editor;
+  #settings;
   #menu;
   #browserChrome;
   #contentContainer;
   #tabContextMenuItem;
   #runtime;
   #items = [];
-  #activeId = null;
-  #activeParentTab = null;
-  #surfaceState = null;
-  #closeTimer = null;
+  #activeIds = [];
+  #surfaces = new Map();
   #editorState = null;
   #railInsertIndex = null;
   #unreadCounts = new Map();
   #menuOpenedAt = 0;
   #abortController = new AbortController();
   #prefObserver;
+  #compactObserver;
+  #textMinWidthObserver;
+  #zenSideObserver;
   #resizeState = null;
   #dragState = null;
+  #compactHoverTimer = null;
+  #compactExpanded = false;
+  #resizeHandle;
+  #edgeGutter;
+  #railResizeHandle;
+  #railResizeState = null;
+  #hotZone;
+  #titleListeners = new Map();
 
   constructor(windowRef) {
     this.window = windowRef;
@@ -82,28 +80,32 @@ class SineWebPanels {
   destroyExistingRoot() {
     this.document.getElementById(ROOT_ID)?.remove();
     this.document.getElementById(EDITOR_ID)?.remove();
+    this.document.getElementById(SETTINGS_ID)?.remove();
     this.document.getElementById(TAB_MENU_ITEM_ID)?.remove();
-    this.#clearOrphanedOverlayState();
   }
 
   destroy() {
+    this.#titleListeners.clear();
     this.#abortController.abort();
-    if (this.#closeTimer) {
-      this.window.clearTimeout(this.#closeTimer);
-      this.#closeTimer = null;
-    }
-    this.#closeSurface({ selectParent: false });
     if (this.#prefObserver) {
       Services.prefs.removeObserver(WebPanelsStore.prefs.enabled, this.#prefObserver);
     }
+    if (this.#compactObserver) {
+      Services.prefs.removeObserver(WebPanelsStore.prefs.compact, this.#compactObserver);
+    }
+    if (this.#textMinWidthObserver) {
+      Services.prefs.removeObserver(WebPanelsStore.prefs.textMinWidth, this.#textMinWidthObserver);
+    }
+    this.#zenSideObserver?.disconnect();
+    this.#clearCompactHoverTimer();
     this.#runtime?.destroy();
     this.#resetChromeLayout();
     this.#editor?.remove();
+    this.#settings?.remove();
     this.#tabContextMenuItem?.remove();
+    this.#edgeGutter?.remove();
     this.#root?.remove();
-    this.#activeId = null;
-    this.#activeParentTab = null;
-    this.#surfaceState = null;
+    this.#activeIds = [];
     this.#editor = null;
     this.#tabContextMenuItem = null;
     this.#root = null;
@@ -120,17 +122,11 @@ class SineWebPanels {
       id: ROOT_ID,
       side: this.#placementSide(),
     });
-    this.#root.style.setProperty("--sine-web-panels-width", `${this.#store.width}px`);
-    this.document.documentElement.style.setProperty("--sine-web-panels-width", `${this.#store.width}px`);
+    this.#root.style.setProperty("--sine-web-panels-width", `${this.#store.viewerWidth}px`);
+    this.#root.style.setProperty("--sine-web-panels-rail-size", `${this.#store.railWidth}px`);
 
     this.#backdrop = this.#el("div", { id: BACKDROP_ID, hidden: "true" });
-    this.#resizer = this.#el("div", {
-      id: RESIZER_ID,
-      role: "separator",
-      "aria-orientation": "vertical",
-      title: "Resize Web Panel",
-      hidden: "true",
-    });
+    this.#surfaceShell = this.#el("div", { id: "sine-web-panels-shell", hidden: "true" });
 
     this.#rail = this.#el("div", {
       id: RAIL_ID,
@@ -148,34 +144,58 @@ class SineWebPanels {
     this.#rail.append(this.#list, addButton);
 
     this.#editor = this.#buildEditor();
+    this.#settings = this.#buildSettings();
     this.#menu = this.#el("div", { id: MENU_ID, hidden: "true", role: "menu" });
 
-    this.#root.append(this.#backdrop, this.#resizer, this.#rail, this.#menu);
+    const hotZone = this.#el("div", { id: "sine-web-panels-hotzone" });
+    this.#hotZone = hotZone;
+
+    const edgeGutter = this.#el("div", { id: "sine-web-panels-edge-gutter" });
+    this.#edgeGutter = edgeGutter;
+
+    const resizer = this.#el("div", { id: "sine-web-panels-viewer-resizer", hidden: "true" });
+    this.#resizeHandle = resizer;
+
+    const railResizer = this.#el("div", { id: "sine-web-panels-rail-resizer" });
+    this.#railResizeHandle = railResizer;
+
+    this.#root.append(this.#backdrop, edgeGutter, resizer, this.#surfaceShell, railResizer, this.#rail, this.#menu, hotZone);
     this.#browserChrome.append(this.#root);
     (this.document.getElementById("mainPopupSet") ?? this.#browserChrome).append(this.#editor);
+    (this.document.getElementById("mainPopupSet") ?? this.#browserChrome).append(this.#settings);
     this.#mountTabContextMenuItem();
     this.#syncChromeLayout();
+    this.#applyCompactState();
 
     const signal = this.#abortController.signal;
     addButton.addEventListener("click", event => {
       event.stopPropagation();
       this.#openEditor({ mode: "add", anchor: addButton, insertIndex: this.#items.length });
     }, { signal });
-    this.#backdrop.addEventListener("click", event => {
-      if (!this.#isPointInsideActivePanel(event.clientX, event.clientY)) {
-        this.#closePanel();
+    hotZone.addEventListener("pointerenter", this.#onHotZoneEnter, { signal });
+    hotZone.addEventListener("pointerleave", this.#onHotZoneLeave, { signal });
+    edgeGutter.addEventListener("pointerdown", this.#onResizeStart, { signal });
+    resizer.addEventListener("pointerdown", this.#onResizeStart, { signal });
+    railResizer.addEventListener("pointerdown", this.#onRailResizeStart, { signal });
+    this.#root.addEventListener("pointerleave", this.#onRootLeave, { signal });
+    this.#backdrop.addEventListener("click", () => {
+      while (this.#activeIds.length > 0) {
+        this.#closePanel(0);
       }
     }, { signal });
+    this.#surfaceShell.addEventListener("click", event => event.stopPropagation(), { signal });
     this.#rail.addEventListener("contextmenu", this.#onRailContextMenu, { signal });
-    this.#resizer.addEventListener("pointerdown", this.#onResizeStart, { signal });
+    this.window.addEventListener("pointermove", this.#onEdgeHover, { signal });
     this.window.addEventListener("pointermove", this.#onPointerMove, { signal });
     this.window.addEventListener("pointerup", this.#onPointerUp, { signal });
+    this.window.addEventListener("pointerleave", this.#onPointerLeave, { signal });
     this.window.addEventListener("resize", this.#onWindowResize, { signal });
     this.document.addEventListener("click", this.#onDocumentClick, { signal });
     this.document.addEventListener("keydown", this.#onKeyDown, { signal });
-    this.window.gBrowser?.tabContainer?.addEventListener("TabSelect", this.#onTabSelect, { signal });
-    this.window.gBrowser?.tabContainer?.addEventListener("TabClose", this.#onTabClose, { signal });
-    this.window.gBrowser?.tabContainer?.addEventListener("TabAttrModified", this.#onTabAttrModified, { signal });
+
+    // Listen for Zen workspace changes
+    this.window.addEventListener("ZenWorkspaceChanged", this.#onWorkspaceChange, { signal });
+
     this.#render();
   }
 
@@ -214,6 +234,33 @@ class SineWebPanels {
       },
     };
     Services.prefs.addObserver(WebPanelsStore.prefs.enabled, this.#prefObserver);
+
+    this.#compactObserver = {
+      observe: (_subject, topic, prefName) => {
+        if (topic === "nsPref:changed" && prefName === WebPanelsStore.prefs.compact) {
+          this.#applyCompactState();
+        }
+      },
+    };
+    Services.prefs.addObserver(WebPanelsStore.prefs.compact, this.#compactObserver);
+
+    this.#textMinWidthObserver = {
+      observe: (_subject, topic, prefName) => {
+        if (topic === "nsPref:changed" && prefName === WebPanelsStore.prefs.textMinWidth) {
+          this.#syncLabels();
+        }
+      },
+    };
+    Services.prefs.addObserver(WebPanelsStore.prefs.textMinWidth, this.#textMinWidthObserver);
+
+    // Watch for Zen tab position changes
+    this.#zenSideObserver = new MutationObserver(() => {
+      this.#updateSide();
+    });
+    this.#zenSideObserver.observe(this.document.documentElement, {
+      attributes: true,
+      attributeFilter: ["zen-right-side"]
+    });
   }
 
   #applyEnabledState() {
@@ -228,11 +275,301 @@ class SineWebPanels {
       return;
     }
 
-    this.#closePanel({ animate: false });
+    while (this.#activeIds.length > 0) {
+      this.#closePanel(0);
+    }
     this.#runtime?.destroy();
     this.#runtime = new WebPanelsRuntime(this.window);
     this.#root.setAttribute("disabled", "true");
     this.#resetChromeLayout();
+  }
+
+  #applyCompactState() {
+    if (!this.#root) {
+      return;
+    }
+
+    const compact = this.#store.compact && this.#store.enabled;
+    this.#root.toggleAttribute("compact", compact);
+    if (compact) {
+      this.#compactExpanded = false;
+      this.#syncChromeLayout();
+    } else {
+      this.#clearCompactHoverTimer();
+      this.#compactExpanded = false;
+      this.#syncChromeLayout();
+    }
+  }
+
+  #onHotZoneEnter = () => {
+    console.log("[PANELS] hotzone enter");
+    if (!this.#store.compact || !this.#store.enabled) {
+      return;
+    }
+    if (this.#activeIds.length > 0 && this.#root.hasAttribute("compact-panel-active")) {
+      console.log("[PANELS] re-entering from compact-panel-active, expanding");
+      this.#clearCompactHoverTimer();
+      this.#root.removeAttribute("compact-panel-active");
+      this.#root.setAttribute("compact-expanded", "true");
+      this.#compactExpanded = true;
+      this.#reconcile();
+      return;
+    }
+    if (this.#activeIds.length > 0 || this.#compactExpanded) {
+      return;
+    }
+    this.#clearCompactHoverTimer();
+    this.#compactExpanded = true;
+    this.#root.setAttribute("compact-expanded", "true");
+    this.#reconcile();
+  };
+
+  #onHotZoneLeave = () => {
+    this.#clearCompactHoverTimer();
+  };
+
+  #isCursorInSafeZone(event) {
+    // Active resize is a hard modal state — collapse is fully disabled
+    if (this.#resizeState || this.#railResizeState) return true;
+
+    const side = this.#placementSide();
+    const fromEdge = side === "right"
+      ? this.window.innerWidth - event.clientX
+      : event.clientX;
+
+    // UI hit-test first — eliminates the 2-3px dead zone between
+    // the resize handle outer edge and the geometric boundary
+    const onPanelUI = event.target instanceof Element && (
+      this.#rail.contains(event.target) ||
+      this.#railResizeHandle?.contains(event.target) ||
+      this.#edgeGutter?.contains(event.target) ||
+      this.#resizeHandle?.contains(event.target) ||
+      this.#hotZone.contains(event.target)
+    );
+    if (onPanelUI) return true;
+
+    const styles = this.window.getComputedStyle(this.#root);
+    const gap = Number.parseFloat(styles.getPropertyValue("--sine-web-panels-gap")) || 6;
+    const railSize = Number.parseFloat(styles.getPropertyValue("--sine-web-panels-rail-size")) || 40;
+    // +14 covers the 6px resize handle + 8px buffer past rail edge,
+    // so fast cursor movement that skips over the handle still stays
+    // within the safe zone
+    const exitBoundary = gap + railSize + 14;
+
+    return fromEdge <= exitBoundary;
+  }
+
+  #onEdgeHover = event => {
+    if (!this.#store.compact || !this.#store.enabled) {
+      return;
+    }
+
+    // Hard-gate: collapse is disabled while cursor hovers a resize handle
+    // or an active drag is in progress. Checked here before any geometry
+    // logic so resize interactions never compete with collapse scheduling.
+    if (
+      this.#resizeState ||
+      this.#railResizeState ||
+      this.#edgeGutter?.matches(":hover") ||
+      this.#resizeHandle?.matches(":hover") ||
+      this.#railResizeHandle?.matches(":hover")
+    ) {
+      this.#clearCompactHoverTimer();
+      return;
+    }
+
+    const side = this.#placementSide();
+    const fromEdge = side === "right"
+      ? this.window.innerWidth - event.clientX
+      : event.clientX;
+
+    if (!this.#compactExpanded) {
+      if (fromEdge <= 12) {
+        this.#clearCompactHoverTimer();
+        if (this.#root.hasAttribute("compact-panel-active")) {
+          this.#root.removeAttribute("compact-panel-active");
+        }
+        this.#compactExpanded = true;
+        this.#root.setAttribute("compact-expanded", "true");
+        this.#reconcile();
+      }
+      return;
+    }
+
+    if (this.#isCursorInSafeZone(event)) {
+      this.#clearCompactHoverTimer();
+    } else if (this.#compactHoverTimer === null) {
+      this.#scheduleCollapse();
+    }
+  };
+
+  #onPointerLeave = event => {
+    if (!this.#store.compact || !this.#store.enabled || !this.#compactExpanded) {
+      return;
+    }
+
+    // When the cursor leaves the window entirely, collapse the panel
+    // This handles the case where the user moves the cursor off-screen
+    if (this.#compactHoverTimer === null) {
+      this.#scheduleCollapse();
+    }
+  };
+
+  #onWorkspaceChange = () => {
+    // Re-render rail when workspace changes to show/hide workspace-specific panels
+    this.#render();
+  };
+
+  #onRootLeave = event => {
+    if (!this.#store.compact || !this.#store.enabled || !this.#compactExpanded) {
+      return;
+    }
+
+    // Don't trust relatedTarget — use geometry with a safety margin
+    const side = this.#placementSide();
+    const fromEdge = side === "right"
+      ? this.window.innerWidth - event.clientX
+      : event.clientX;
+
+    const styles = this.window.getComputedStyle(this.#root);
+    const gap = Number.parseFloat(styles.getPropertyValue("--sine-web-panels-gap")) || 6;
+    const railSize = Number.parseFloat(styles.getPropertyValue("--sine-web-panels-rail-size")) || 40;
+    const exitBoundary = gap + railSize + 14;
+
+    // +6 safety margin: pointerleave events can fire from subpixel
+    // hit-test changes during layout/transition
+    if (fromEdge <= exitBoundary + 6) {
+      return;
+    }
+
+    if (this.#compactHoverTimer === null) {
+      this.#scheduleCollapse();
+    }
+  };
+
+  #reconcile() {
+    this.#syncSurfaces();
+    this.#syncLayout();
+    this.#syncChromeLayout();
+  }
+
+  #syncSurfaces() {
+    const desired = new Set(this.#activeIds);
+
+    for (const [id, surface] of this.#surfaces) {
+      if (!desired.has(id)) {
+        const browser = surface.querySelector("browser");
+        if (browser) {
+          this.#titleListeners.delete(browser);
+        }
+        surface.remove();
+        this.#runtime.unload(id);
+        this.#surfaces.delete(id);
+      }
+    }
+
+    for (const id of this.#activeIds) {
+      if (this.#surfaces.has(id)) continue;
+
+      const surface = this.#el("div", { class: "sine-web-panels-surface" });
+      surface.style.cssText = "min-width:0;min-height:0;width:100%;height:100%;display:flex;background:Canvas;overflow:hidden;";
+      this.#surfaceShell.append(surface);
+      this.#surfaces.set(id, surface);
+
+      const item = this.#items.find(i => i.id === id);
+      if (item) {
+        const browser = this.#runtime.attach(item, surface);
+        this.#bindBrowserTitle(item, browser);
+      }
+    }
+
+    if (this.#activeIds.length > 0) {
+      this.#root.setAttribute("active", this.#activeIds[this.#activeIds.length - 1]);
+    } else {
+      this.#root.removeAttribute("active");
+    }
+    this.#root.toggleAttribute("open", this.#activeIds.length > 0);
+  }
+
+  #syncLayout() {
+    const ids = this.#activeIds;
+    const surfaces = ids.map(id => this.#surfaces.get(id)).filter(Boolean);
+    let areas = this.#resolveLayout(surfaces.length);
+
+    // When tabs are on the right, reverse the area assignment
+    // so panels spawn on the left side instead of right
+    const side = this.#placementSide();
+    if (side === "right") {
+      areas = areas.reverse();
+    }
+
+    surfaces.forEach((surface, i) => {
+      surface.style.gridArea = areas[i] ?? "";
+    });
+
+    this.#root.setAttribute("panel-count", String(ids.length));
+
+    if (this.#resizeHandle) {
+      this.#resizeHandle.hidden = ids.length === 0;
+    }
+    if (this.#edgeGutter) {
+      this.#edgeGutter.hidden = ids.length === 0;
+    }
+    if (this.#railResizeHandle) {
+      this.#railResizeHandle.hidden = false;
+    }
+  }
+
+  #resolveLayout(count) {
+    switch (count) {
+      case 0: return [];
+      case 1: return ["1 / 1 / 3 / 3"];
+      case 2: return ["2 / 1 / 3 / 2", "1 / 1 / 2 / 2"];
+      case 3: return ["2 / 1 / 3 / 3", "1 / 1 / 2 / 2", "1 / 2 / 2 / 3"];
+      default: return ["2 / 1 / 3 / 2", "1 / 1 / 2 / 2", "1 / 2 / 2 / 3", "2 / 2 / 3 / 3"];
+    }
+  }
+
+  #collapseCompact() {
+    if (!this.#compactExpanded) {
+      return;
+    }
+    this.#compactExpanded = false;
+    this.#root.removeAttribute("compact-expanded");
+    this.#reconcile();
+  }
+
+  #clearCompactHoverTimer() {
+    if (this.#compactHoverTimer !== null) {
+      this.window.clearTimeout(this.#compactHoverTimer);
+      this.#compactHoverTimer = null;
+    }
+  }
+
+  #scheduleCollapse() {
+    if (this.#compactHoverTimer !== null) {
+      return;
+    }
+    this.#compactHoverTimer = this.window.setTimeout(() => {
+      this.#compactHoverTimer = null;
+      if (!this.#compactExpanded) {
+        return;
+      }
+      if (this.#activeIds.length > 0) {
+        this.#root.removeAttribute("compact-expanded");
+        this.#root.setAttribute("compact-panel-active", "true");
+        this.#compactExpanded = false;
+        this.#reconcile();
+      } else {
+        this.#collapseCompact();
+      }
+    }, 250);
+  }
+
+  #syncLabels() {
+    const styles = this.window.getComputedStyle(this.#root);
+    const railSize = Number.parseFloat(styles.getPropertyValue("--sine-web-panels-rail-size")) || 0;
+    this.#root.toggleAttribute("labels", railSize > this.#store.textMinWidth);
   }
 
   #syncChromeLayout() {
@@ -242,11 +579,15 @@ class SineWebPanels {
 
     const side = this.#placementSide();
     const styles = this.window.getComputedStyle(this.#root);
-    const railSize = Number.parseFloat(styles.getPropertyValue("--sine-web-panels-rail-size")) || 36;
+    const compact = this.#store.compact && !this.#compactExpanded;
+    const railSize = compact
+      ? 0
+      : Number.parseFloat(styles.getPropertyValue("--sine-web-panels-rail-size")) || 40;
     const gap = Number.parseFloat(styles.getPropertyValue("--sine-web-panels-gap")) || 8;
-    const reservedSize = `${railSize + gap}px`;
+    // In compact mode when collapsed, don't reserve any space (rail has width: 0)
+    // This matches Zen's behavior where the sidebar doesn't take up space when hidden
+    const reservedSize = compact ? "0px" : `${railSize + gap}px`;
     this.#browserChrome.setAttribute("sine-web-panels-side", side);
-    this.document.documentElement.setAttribute("sine-web-panels-side", side);
     this.#browserChrome.style.setProperty(
       "--sine-web-panels-reserved-inline-size",
       reservedSize
@@ -263,8 +604,6 @@ class SineWebPanels {
 
   #resetChromeLayout() {
     this.#browserChrome?.removeAttribute("sine-web-panels-side");
-    this.document?.documentElement?.removeAttribute("sine-web-panels-side");
-    this.document?.documentElement?.style.removeProperty("--sine-web-panels-width");
     this.#browserChrome?.style.removeProperty("--sine-web-panels-reserved-inline-size");
     this.#contentContainer?.style.removeProperty("margin-inline-start");
     this.#contentContainer?.style.removeProperty("margin-inline-end");
@@ -280,25 +619,41 @@ class SineWebPanels {
     );
   }
 
+  #getCurrentWorkspace() {
+    if (typeof window.gZenWorkspaces !== "undefined") {
+      try {
+        return window.gZenWorkspaces.activeWorkspace || "";
+      } catch (e) {
+        return "";
+      }
+    }
+    return "";
+  }
+
   #render() {
     if (!this.#list || !this.#store.enabled) {
       return;
     }
 
-    this.#items = this.#store.items;
+    const currentWorkspace = this.#getCurrentWorkspace();
+    this.#items = this.#store.items.filter(item => {
+      // Show panel if workspaceId is empty (all workspaces) or matches current workspace
+      return !item.workspaceId || item.workspaceId === currentWorkspace;
+    });
     this.#runtime?.unloadMissing(this.#items.filter(isPanel).map(item => item.id));
-    this.#list.replaceChildren();
 
-    for (const [index, item] of this.#items.entries()) {
-      const node = isSeparator(item)
-        ? this.#renderSeparator(item, index)
-        : this.#renderPanelButton(item, index);
-      this.#list.append(node);
+    this.#list.replaceChildren();
+    let itemIndex = 0;
+
+    for (const item of this.#items) {
+      this.#list.append(this.#renderPanelButton(item, itemIndex));
+      itemIndex++;
     }
 
     this.#root.toggleAttribute("has-items", this.#items.length > 0);
     this.#root.setAttribute("side", this.#placementSide());
     this.#syncChromeLayout();
+    this.#syncLabels();
   }
 
   #renderPanelButton(item, index) {
@@ -309,7 +664,7 @@ class SineWebPanels {
     button.dataset.itemId = item.id;
     button.dataset.index = String(index);
     button.setAttribute("aria-label", item.title || item.url);
-    if (item.id === this.#activeId) {
+    if (this.#activeIds.includes(item.id)) {
       button.setAttribute("active", "true");
     }
 
@@ -318,9 +673,13 @@ class SineWebPanels {
       alt: "",
       draggable: "false",
     });
-    const tabIcon = this.#runtime?.get(item.id)?.tab?.getAttribute("image");
-    this.#setFaviconSource(icon, item.url, tabIcon);
-    button.append(icon);
+    icon.src = `page-icon:${item.url}`;
+    icon.addEventListener("error", () => {
+      icon.removeAttribute("src");
+      icon.setAttribute("fallback", "true");
+    }, { once: true });
+    const label = this.#el("span", { class: "sine-web-panels-label" }, item.title || item.url);
+    button.append(icon, label);
     this.#applyUnreadBadge(button, item.id);
 
     button.addEventListener("click", event => {
@@ -336,174 +695,83 @@ class SineWebPanels {
     return button;
   }
 
-  #renderSeparator(item, index) {
-    const separator = this.#el("div", {
-      class: "sine-web-panels-item sine-web-panels-separator",
-      role: "separator",
-      "aria-label": "Web Panels separator",
-    });
-    separator.dataset.itemId = item.id;
-    separator.dataset.index = String(index);
-    separator.append(this.#el("span"));
-    separator.addEventListener("contextmenu", event => this.#openItemMenu(event, item), {
-      signal: this.#abortController.signal,
-    });
-    separator.addEventListener("pointerdown", event => this.#onItemPointerDown(event, item), {
-      signal: this.#abortController.signal,
-    });
-    return separator;
-  }
-
   #togglePanel(item) {
-    if (this.#activeId === item.id) {
-      this.#closePanel();
+    const idx = this.#activeIds.indexOf(item.id);
+    if (idx >= 0) {
+      this.#closePanel(idx);
+      return;
+    }
+    if (this.#activeIds.length >= 4) {
       return;
     }
     this.#openPanel(item);
   }
 
   #openPanel(item) {
+    if (this.#activeIds.length >= 4) return;
+    if (this.#activeIds.includes(item.id)) return;
+
     this.#closeEditor();
-    if (this.#closeTimer) {
-      this.window.clearTimeout(this.#closeTimer);
-      this.#closeTimer = null;
-    }
-    const switching = Boolean(this.#activeId && this.#activeId !== item.id);
-    const parentTab = this.#currentVisibleTab() ?? this.#activeParentTab;
-    const panelTab = this.#runtime.ensurePanelTab(item, parentTab);
-    if (!this.#openSurface(parentTab, panelTab)) {
-      console.warn("[Web Panels] Could not attach managed panel tab to a Zen browser surface.");
-      return;
+    this.#activeIds = [...this.#activeIds, item.id];
+
+    if (this.#store.compact) {
+      this.#compactExpanded = true;
+      this.#root.setAttribute("compact-expanded", "true");
     }
 
-    this.#activeId = item.id;
-    this.#activeParentTab = parentTab;
-    this.#backdrop.hidden = false;
-    this.#resizer.hidden = false;
-    this.#root.setAttribute("open", "true");
-    this.#root.toggleAttribute("switching", switching);
-    this.#root.removeAttribute("closing");
-    this.#root.setAttribute("active", item.id);
-    this.#bindBrowserTitle(item, panelTab.linkedBrowser);
-    this.#syncUnreadFromTab(item.id);
-    this.#render();
-    this.window.setTimeout(() => this.#root?.removeAttribute("switching"), 90);
-  }
-
-  #closePanel({ animate = true } = {}) {
-    if (!this.#activeId) {
-      return;
-    }
-
-    this.#root.removeAttribute("active");
-    this.#root.removeAttribute("open");
-    if (this.#closeTimer) {
-      this.window.clearTimeout(this.#closeTimer);
-      this.#closeTimer = null;
-    }
-
-    if (animate) {
-      this.#root.setAttribute("closing", "true");
-      this.#closeTimer = this.window.setTimeout(() => this.#finishClosePanel(), 90);
+    // Single-panel width memory: if this is the only panel open and the
+    // user previously resized it while it was the only one open, restore
+    // that width instead of the global default. Multi-panel sessions
+    // never read or write this — they always use the global viewerWidth
+    // pref, untouched by this feature.
+    if (this.#activeIds.length === 1) {
+      const remembered = this.#store.getPanelWidth(item.id);
+      const width = remembered > 0 ? remembered : this.#store.viewerWidth;
+      const clamped = this.#clampWidth(width);
+      this.#root.style.setProperty("--sine-web-panels-width", `${clamped}px`);
     } else {
-      this.#finishClosePanel();
+      this.#root.style.setProperty("--sine-web-panels-width", `${this.#clampWidth(this.#store.viewerWidth)}px`);
     }
-  }
 
-  #finishClosePanel() {
-    this.#closeTimer = null;
-    this.#closeSurface();
-    this.#activeId = null;
-    this.#activeParentTab = null;
-    this.#backdrop.hidden = true;
-    this.#resizer.hidden = true;
-    this.#root.removeAttribute("active");
-    this.#root.removeAttribute("open");
-    this.#root.removeAttribute("closing");
+    this.#surfaceShell.hidden = false;
+    this.#backdrop.hidden = false;
+    this.#reconcile();
     this.#render();
   }
 
-  #openSurface(parentTab, panelTab) {
-    const parentBrowser = parentTab?.linkedBrowser;
-    const panelBrowser = panelTab?.linkedBrowser;
-    const parentContainer = parentBrowser?.closest(".browserSidebarContainer");
-    const panelContainer = panelBrowser?.closest(".browserSidebarContainer");
-    if (!parentBrowser || !panelBrowser || !parentContainer || !panelContainer) {
-      return false;
-    }
+  #closePanel(idx) {
+    const animate = typeof idx !== "number";
+    const index = typeof idx === "number" ? idx : this.#activeIds.length - 1;
+    const id = this.#activeIds[index];
+    if (!id) return;
 
-    this.#closeSurface({ selectParent: false });
-    parentContainer.classList.add("sine-web-panels-parent-background");
-    panelContainer.classList.add("deck-selected", "sine-web-panels-overlay");
-    panelBrowser.setAttribute("sine-web-panel-selected", "true");
-    parentBrowser.zenModeActive = true;
-    parentBrowser.docShellIsActive = true;
-    panelBrowser.zenModeActive = true;
-    panelBrowser.docShellIsActive = true;
-    if (this.window.gBrowser?.selectedTab === panelTab && parentTab) {
-      this.window.gBrowser.selectedTab = parentTab;
+    this.#activeIds = this.#activeIds.filter(x => x !== id);
+    this.#unreadCounts.delete(id);
+    // Clean up the title listener reference for this panel's browser.
+    const surface = this.#surfaces.get(id);
+    const browser = surface?.querySelector?.("browser");
+    if (browser) {
+      this.#titleListeners.delete(browser);
     }
-    parentTab._visuallySelected = true;
-    this.#surfaceState = {
-      parentTab,
-      panelTab,
-      parentBrowser,
-      panelBrowser,
-      parentContainer,
-      panelContainer,
-    };
-    return true;
-  }
+    this.#reconcile();
+    this.#render();
 
-  #closeSurface({ selectParent = true } = {}) {
-    if (!this.#surfaceState) {
-      return;
+    if (this.#activeIds.length === 0) {
+      if (animate) {
+        this.#root.setAttribute("closing", "true");
+        this.window.setTimeout(() => {
+          if (this.#activeIds.length === 0) {
+            this.#surfaceShell.hidden = true;
+            this.#backdrop.hidden = true;
+            this.#root?.removeAttribute("closing");
+          }
+        }, 90);
+      } else {
+        this.#surfaceShell.hidden = true;
+        this.#backdrop.hidden = true;
+        this.#root.removeAttribute("closing");
+      }
     }
-
-    const { parentTab, panelTab, parentBrowser, panelBrowser, parentContainer, panelContainer } = this.#surfaceState;
-    panelContainer.classList.remove("deck-selected", "sine-web-panels-overlay");
-    parentContainer.classList.remove("sine-web-panels-parent-background");
-    panelBrowser.removeAttribute("sine-web-panel-selected");
-    panelBrowser.zenModeActive = false;
-    panelBrowser.docShellIsActive = false;
-    if (selectParent && parentTab && this.window.gBrowser?.selectedTab === panelTab) {
-      this.window.gBrowser.selectedTab = parentTab;
-    }
-    if (parentBrowser && this.window.gBrowser?.selectedTab !== parentTab) {
-      parentBrowser.zenModeActive = false;
-      parentBrowser.docShellIsActive = false;
-    }
-    if (parentTab) {
-      parentTab._visuallySelected = this.window.gBrowser?.selectedTab === parentTab;
-    }
-    this.#surfaceState = null;
-  }
-
-  #clearOrphanedOverlayState() {
-    this.document
-      .querySelectorAll(".browserSidebarContainer.sine-web-panels-overlay")
-      .forEach(container => container.classList.remove("deck-selected", "sine-web-panels-overlay"));
-    this.document
-      .querySelectorAll(".browserSidebarContainer.sine-web-panels-parent-background")
-      .forEach(container => container.classList.remove("sine-web-panels-parent-background"));
-    this.document
-      .querySelectorAll('browser[sine-web-panel-selected="true"]')
-      .forEach(browser => browser.removeAttribute("sine-web-panel-selected"));
-  }
-
-  #isPointInsideActivePanel(clientX, clientY) {
-    const panelElement = this.#surfaceState?.panelContainer?.querySelector(".browserContainer");
-    if (!panelElement) {
-      return false;
-    }
-
-    const rect = panelElement.getBoundingClientRect();
-    return (
-      clientX >= rect.left &&
-      clientX <= rect.right &&
-      clientY >= rect.top &&
-      clientY <= rect.bottom
-    );
   }
 
   #bindBrowserTitle(item, browser) {
@@ -512,28 +780,24 @@ class SineWebPanels {
     }
     browser.setAttribute("sine-web-panels-title-bound", item.id);
     const update = () => {
-      this.#syncUnreadFromTab(item.id);
-      this.#render();
+      const title = browser.contentTitle || browser.getAttribute("contentTitle") || "";
+      const count = parseWebPanelUnreadCount(title);
+      const prev = this.#unreadCounts.get(item.id) ?? 0;
+      if (count) {
+        this.#unreadCounts.set(item.id, count);
+      } else {
+        this.#unreadCounts.delete(item.id);
+      }
+      // Only touch the DOM when the count actually changed — avoids
+      // rebuilding the entire rail on every title-change event (which
+      // fires constantly on Gmail/Discord/Slack/Outlook).
+      if (count !== prev) {
+        this.#updateUnreadBadge(item.id);
+      }
     };
     browser.addEventListener("DOMTitleChanged", update, { signal: this.#abortController.signal });
     browser.addEventListener("load", update, { signal: this.#abortController.signal });
-  }
-
-  #syncUnreadFromTab(itemId) {
-    const tab = this.#runtime?.get(itemId)?.tab;
-    const browser = tab?.linkedBrowser;
-    const title =
-      tab?.getAttribute("label") ||
-      browser?.contentTitle ||
-      browser?.getAttribute("contentTitle") ||
-      "";
-    const count = parseWebPanelUnreadCount(title);
-    if (count) {
-      this.#unreadCounts.set(itemId, count);
-      return;
-    }
-
-    this.#unreadCounts.delete(itemId);
+    this.#titleListeners.set(browser, update);
   }
 
   #applyUnreadBadge(button, itemId) {
@@ -548,18 +812,31 @@ class SineWebPanels {
     button.append(this.#el("span", { class: "sine-web-panels-badge" }, badge));
   }
 
-  #setFaviconSource(icon, panelUrl, tabIcon = "") {
-    const fallbackUrl = fallbackFaviconUrl(panelUrl);
-    icon.src = tabIcon || `page-icon:${panelUrl}`;
-    icon.addEventListener("error", () => {
-      if (fallbackUrl && icon.src !== fallbackUrl) {
-        icon.src = fallbackUrl;
-        return;
-      }
-
-      icon.removeAttribute("src");
-      icon.setAttribute("fallback", "true");
-    });
+  // Updates only the badge on the button for `itemId`, without rebuilding
+  // the whole rail. Called from the title-change listener when the unread
+  // count actually changes.
+  #updateUnreadBadge(itemId) {
+    const count = this.#unreadCounts.get(itemId);
+    const badgeText = displayCount(count);
+    const button = this.#list.querySelector(`[data-item-id="${CSS.escape(itemId)}"]`);
+    if (!button) {
+      return;
+    }
+    if (!badgeText) {
+      button.removeAttribute("badged");
+      button.removeAttribute("unread-count");
+      button.querySelector(".sine-web-panels-badge")?.remove();
+      return;
+    }
+    button.setAttribute("badged", "true");
+    button.setAttribute("unread-count", String(count));
+    let badge = button.querySelector(".sine-web-panels-badge");
+    if (badge) {
+      badge.textContent = badgeText;
+    } else {
+      badge = this.#el("span", { class: "sine-web-panels-badge" }, badgeText);
+      button.append(badge);
+    }
   }
 
   #buildEditor() {
@@ -580,6 +857,34 @@ class SineWebPanels {
       placeholder: "https://calendar.google.com",
       "aria-label": "Web Panel URL",
     });
+
+    // Workspace dropdown
+    const workspaceRow = this.#el("div", { class: "sine-web-panels-editor-row" });
+    const workspaceLabel = this.#el("label", { class: "sine-web-panels-editor-label" }, "Workspace");
+    const workspaceSelect = this.#el("select", {
+      id: "sine-web-panels-editor-workspace",
+      class: "sine-web-panels-editor-select",
+    });
+
+    // Populate workspace options
+    const allWorkspacesOption = this.#el("option", { value: "" }, "All Workspaces");
+    workspaceSelect.append(allWorkspacesOption);
+
+    // Try to get Zen workspaces if available
+    if (typeof window.gZenWorkspaces !== "undefined") {
+      try {
+        const workspaces = window.gZenWorkspaces.getWorkspaces();
+        for (const workspace of workspaces) {
+          const option = this.#el("option", { value: workspace.uuid }, workspace.name || "Unnamed Space");
+          workspaceSelect.append(option);
+        }
+      } catch (e) {
+        // Zen workspaces not available, just use "All Workspaces"
+      }
+    }
+
+    workspaceRow.append(workspaceLabel, workspaceSelect);
+
     const error = this.#el("div", {
       id: "sine-web-panels-editor-error",
       role: "alert",
@@ -591,7 +896,7 @@ class SineWebPanels {
       className: "sine-web-panels-ghost-button",
     });
     submit.type = "submit";
-    form.append(input, submit, error);
+    form.append(input, workspaceRow, submit, error);
     form.addEventListener("submit", event => {
       event.preventDefault();
       this.#saveEditor();
@@ -608,13 +913,209 @@ class SineWebPanels {
     return editor;
   }
 
+  #buildSettings() {
+    const settings = this.#xul("panel", {
+      id: SETTINGS_ID,
+      class: "cui-widget-panel panel-no-padding",
+      type: "arrow",
+      orient: "vertical",
+      flip: "slide",
+      consumeoutsideclicks: "never",
+      hidden: "true",
+    });
+
+    const content = this.#el("div", { id: "sine-web-panels-settings-content" });
+
+    // Enable Web Panels
+    const enabledRow = this.#el("div", { class: "sine-web-panels-setting-row" });
+    const enabledLabel = this.#el("label", { class: "sine-web-panels-setting-label" }, "Enable Web Panels");
+    const enabledToggle = this.#el("input", {
+      type: "checkbox",
+      id: "sine-web-panels-setting-enabled",
+    });
+    enabledToggle.checked = this.#store.enabled;
+    enabledToggle.addEventListener("change", () => {
+      this.#store.enabled = enabledToggle.checked;
+    }, { signal: this.#abortController.signal });
+    enabledRow.append(enabledLabel, enabledToggle);
+
+    // Compact Mode
+    const compactRow = this.#el("div", { class: "sine-web-panels-setting-row" });
+    const compactLabel = this.#el("label", { class: "sine-web-panels-setting-label" }, "Compact Mode");
+    const compactToggle = this.#el("input", {
+      type: "checkbox",
+      id: "sine-web-panels-setting-compact",
+    });
+    compactToggle.checked = this.#store.compact;
+    compactToggle.addEventListener("change", () => {
+      this.#store.compact = compactToggle.checked;
+    }, { signal: this.#abortController.signal });
+    compactRow.append(compactLabel, compactToggle);
+
+    // Panel Width
+    const widthRow = this.#el("div", { class: "sine-web-panels-setting-row" });
+    const widthLabel = this.#el("label", { class: "sine-web-panels-setting-label" }, "Panel Width");
+    const widthInput = this.#el("input", {
+      type: "number",
+      id: "sine-web-panels-setting-width",
+      min: MIN_PANEL_WIDTH,
+      max: 1920,
+      value: this.#store.width,
+    });
+    widthInput.addEventListener("change", () => {
+      const value = Number.parseInt(widthInput.value, 10);
+      if (Number.isFinite(value) && value >= MIN_PANEL_WIDTH) {
+        this.#store.width = value;
+      } else {
+        widthInput.value = this.#store.width;
+      }
+    }, { signal: this.#abortController.signal });
+    widthRow.append(widthLabel, widthInput);
+
+    // Viewer Width
+    const viewerWidthRow = this.#el("div", { class: "sine-web-panels-setting-row" });
+    const viewerWidthLabel = this.#el("label", { class: "sine-web-panels-setting-label" }, "Viewer Width");
+    const viewerWidthInput = this.#el("input", {
+      type: "number",
+      id: "sine-web-panels-setting-viewer-width",
+      min: MIN_PANEL_WIDTH,
+      max: 1920,
+      value: this.#store.viewerWidth,
+    });
+    viewerWidthInput.addEventListener("change", () => {
+      const value = Number.parseInt(viewerWidthInput.value, 10);
+      if (Number.isFinite(value) && value >= MIN_PANEL_WIDTH) {
+        this.#store.viewerWidth = value;
+      } else {
+        viewerWidthInput.value = this.#store.viewerWidth;
+      }
+    }, { signal: this.#abortController.signal });
+    viewerWidthRow.append(viewerWidthLabel, viewerWidthInput);
+
+    // Max Viewer Width
+    const maxViewerWidthRow = this.#el("div", { class: "sine-web-panels-setting-row" });
+    const maxViewerWidthLabel = this.#el("label", { class: "sine-web-panels-setting-label" }, "Max Viewer Width");
+    const maxViewerWidthInput = this.#el("input", {
+      type: "number",
+      id: "sine-web-panels-setting-max-viewer-width",
+      min: MIN_PANEL_WIDTH,
+      max: 3840,
+      value: this.#store.maxViewerWidth,
+    });
+    maxViewerWidthInput.addEventListener("change", () => {
+      const value = Number.parseInt(maxViewerWidthInput.value, 10);
+      if (Number.isFinite(value) && value >= MIN_PANEL_WIDTH) {
+        this.#store.maxViewerWidth = value;
+      } else {
+        maxViewerWidthInput.value = this.#store.maxViewerWidth;
+      }
+    }, { signal: this.#abortController.signal });
+    maxViewerWidthRow.append(maxViewerWidthLabel, maxViewerWidthInput);
+
+    // Rail Width
+    const railWidthRow = this.#el("div", { class: "sine-web-panels-setting-row" });
+    const railWidthLabel = this.#el("label", { class: "sine-web-panels-setting-label" }, "Rail Width");
+    const railWidthInput = this.#el("input", {
+      type: "number",
+      id: "sine-web-panels-setting-rail-width",
+      min: 24,
+      max: 260,
+      value: this.#store.railWidth,
+    });
+    railWidthInput.addEventListener("change", () => {
+      const value = Number.parseInt(railWidthInput.value, 10);
+      if (Number.isFinite(value) && value >= 24) {
+        this.#store.railWidth = value;
+      } else {
+        railWidthInput.value = this.#store.railWidth;
+      }
+    }, { signal: this.#abortController.signal });
+    railWidthRow.append(railWidthLabel, railWidthInput);
+
+    // Text Min Width
+    const textMinWidthRow = this.#el("div", { class: "sine-web-panels-setting-row" });
+    const textMinWidthLabel = this.#el("label", { class: "sine-web-panels-setting-label" }, "Text Min Width");
+    const textMinWidthInput = this.#el("input", {
+      type: "number",
+      id: "sine-web-panels-setting-text-min-width",
+      min: 24,
+      max: 260,
+      value: this.#store.textMinWidth,
+    });
+    textMinWidthInput.addEventListener("change", () => {
+      const value = Number.parseInt(textMinWidthInput.value, 10);
+      if (Number.isFinite(value) && value >= 24) {
+        this.#store.textMinWidth = value;
+      } else {
+        textMinWidthInput.value = this.#store.textMinWidth;
+      }
+    }, { signal: this.#abortController.signal });
+    textMinWidthRow.append(textMinWidthLabel, textMinWidthInput);
+
+    content.append(enabledRow, compactRow, widthRow, viewerWidthRow, maxViewerWidthRow, railWidthRow, textMinWidthRow);
+    settings.append(content);
+
+    settings.addEventListener("popuphidden", () => {
+      settings.hidden = true;
+    }, { signal: this.#abortController.signal });
+
+    return settings;
+  }
+
+  #openSettings() {
+    this.#closeMenu();
+    this.#closeEditor();
+
+    // Refresh values
+    const enabledToggle = this.#settings.querySelector("#sine-web-panels-setting-enabled");
+    const compactToggle = this.#settings.querySelector("#sine-web-panels-setting-compact");
+    const widthInput = this.#settings.querySelector("#sine-web-panels-setting-width");
+    const viewerWidthInput = this.#settings.querySelector("#sine-web-panels-setting-viewer-width");
+    const maxViewerWidthInput = this.#settings.querySelector("#sine-web-panels-setting-max-viewer-width");
+    const railWidthInput = this.#settings.querySelector("#sine-web-panels-setting-rail-width");
+    const textMinWidthInput = this.#settings.querySelector("#sine-web-panels-setting-text-min-width");
+
+    if (enabledToggle) enabledToggle.checked = this.#store.enabled;
+    if (compactToggle) compactToggle.checked = this.#store.compact;
+    if (widthInput) widthInput.value = this.#store.width;
+    if (viewerWidthInput) viewerWidthInput.value = this.#store.viewerWidth;
+    if (maxViewerWidthInput) maxViewerWidthInput.value = this.#store.maxViewerWidth;
+    if (railWidthInput) railWidthInput.value = this.#store.railWidth;
+    if (textMinWidthInput) textMinWidthInput.value = this.#store.textMinWidth;
+
+    this.#settings.hidden = false;
+    this.#openSettingsPopup();
+  }
+
+  #closeSettings() {
+    if (!this.#settings) {
+      return;
+    }
+
+    if (typeof this.#settings.hidePopup === "function" && this.#settings.state !== "closed") {
+      this.#settings.hidePopup();
+      return;
+    }
+
+    this.#settings.hidden = true;
+  }
+
+  #openSettingsPopup() {
+    const position = this.#placementSide() === "right"
+      ? "leftcenter rightcenter"
+      : "rightcenter leftcenter";
+    this.#settings.openPopup(this.#rail, position, 0, 0, false, false);
+  }
+
   #openEditor({ mode, item = null, anchor = null, insertIndex = this.#items.length }) {
     const input = this.#editor.querySelector("input");
+    const workspaceSelect = this.#editor.querySelector("select");
     const submit = this.#editor.querySelector("button");
     const error = this.#editor.querySelector('[role="alert"]');
     this.#closeMenu();
     this.#editorState = { mode, itemId: item?.id ?? null, insertIndex };
     input.value = item?.url ?? this.#currentTabUrl() ?? "";
+    workspaceSelect.value = item?.workspaceId ?? "";
     submit.textContent = mode === "edit" ? "Save" : "+ Add";
     submit.disabled = !input.value.trim();
     error.hidden = true;
@@ -628,6 +1129,7 @@ class SineWebPanels {
 
   #saveEditor() {
     const input = this.#editor.querySelector("input");
+    const workspaceSelect = this.#editor.querySelector("select");
     const error = this.#editor.querySelector('[role="alert"]');
     const url = normalizeWebPanelUrl(input.value);
     if (!url) {
@@ -636,13 +1138,21 @@ class SineWebPanels {
       return;
     }
 
+    const workspaceId = workspaceSelect?.value ?? "";
+
     if (this.#editorState?.mode === "edit") {
       const updated = this.#store.updatePanel(this.#editorState.itemId, url);
       if (updated) {
-        this.#unloadPanel(updated.id);
+        updated.workspaceId = workspaceId;
+        this.#store.items = [...this.#store.items];
+        this.#runtime.unload(updated.id);
+        const surface = this.#surfaces.get(updated.id);
+        if (surface) {
+          this.#runtime.attach(updated, surface);
+        }
       }
     } else {
-      this.#store.insert(this.#store.createPanel(url), this.#editorState?.insertIndex ?? this.#items.length);
+      this.#store.insert(this.#store.createPanel(url, undefined, workspaceId), this.#editorState?.insertIndex ?? this.#items.length);
     }
 
     this.#closeEditor();
@@ -667,22 +1177,16 @@ class SineWebPanels {
     event.preventDefault();
     event.stopPropagation();
     const index = this.#items.findIndex(entry => entry.id === item.id);
-    const actions = isPanel(item)
-      ? [
-          ["Open in New Tab", () => this.#openInNewTab(item.url)],
-          ["Edit Web Panel", () => this.#openEditor({ mode: "edit", item, anchor: this.#findItemElement(item.id) })],
-          ["Move Up", () => this.#moveItem(item.id, index - 1), index <= 0],
-          ["Move Down", () => this.#moveItem(item.id, index + 1), index >= this.#items.length - 1],
-          ["separator"],
-          ["Unload Web Panel", () => this.#unloadPanel(item.id)],
-          ["Delete Web Panel", () => this.#deleteItem(item.id)],
-        ]
-      : [
-          ["Move Up", () => this.#moveItem(item.id, index - 1), index <= 0],
-          ["Move Down", () => this.#moveItem(item.id, index + 1), index >= this.#items.length - 1],
-          ["separator"],
-          ["Delete", () => this.#deleteItem(item.id)],
-        ];
+    const actions = [
+      ["Open in New Tab", () => this.#openInNewTab(item.url)],
+      ["Rename", () => this.#renamePanel(item)],
+      ["Edit Web Panel", () => this.#openEditor({ mode: "edit", item, anchor: this.#findItemElement(item.id) })],
+      ["Move Up", () => this.#moveItem(item.id, index - 1), index <= 0],
+      ["Move Down", () => this.#moveItem(item.id, index + 1), index >= this.#items.length - 1],
+      ["separator"],
+      ["Unload Web Panel", () => this.#runtime.unload(item.id)],
+      ["Delete Web Panel", () => this.#deleteItem(item.id)],
+    ];
     this.#openMenu(event.clientX, event.clientY, actions);
   }
 
@@ -694,11 +1198,9 @@ class SineWebPanels {
     event.stopPropagation();
     this.#railInsertIndex = this.#insertIndexFromY(event.clientY);
     this.#openMenu(event.clientX, event.clientY, [
-      ["Add Spacer", () => {
-        this.#store.insert(this.#store.createSeparator(), this.#railInsertIndex);
-        this.#render();
-      }],
       ["New Web Panel", () => this.#openEditor({ mode: "add", anchor: this.#rail, insertIndex: this.#railInsertIndex })],
+      ["separator"],
+      ["Settings", () => this.#openSettings()],
     ]);
   };
 
@@ -732,18 +1234,24 @@ class SineWebPanels {
   }
 
   #deleteItem(id) {
-    this.#unloadPanel(id);
     this.#store.remove(id);
-    this.#unreadCounts.delete(id);
-    this.#render();
+    const idx = this.#activeIds.indexOf(id);
+    if (idx >= 0) {
+      this.#closePanel(idx);
+    } else {
+      this.#unreadCounts.delete(id);
+      this.#render();
+    }
   }
 
-  #unloadPanel(id) {
-    if (this.#activeId === id) {
-      this.#closePanel({ animate: false });
+  #renamePanel(item) {
+    const name = this.window.prompt("Panel name:", item.title || "");
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (trimmed && trimmed !== item.title) {
+      this.#store.renamePanel(item.id, trimmed);
+      this.#render();
     }
-    this.#runtime.unload(id);
-    this.#unreadCounts.delete(id);
   }
 
   #moveItem(id, targetIndex) {
@@ -767,8 +1275,17 @@ class SineWebPanels {
   }
 
   #onPointerMove = event => {
+    // Active resize disables collapse scheduling — the user is
+    // intentionally interacting with the panel boundaries
     if (this.#resizeState) {
+      this.#clearCompactHoverTimer();
       this.#resize(event);
+      return;
+    }
+
+    if (this.#railResizeState) {
+      this.#clearCompactHoverTimer();
+      this.#onRailResize(event);
       return;
     }
 
@@ -790,6 +1307,11 @@ class SineWebPanels {
   #onPointerUp = event => {
     if (this.#resizeState) {
       this.#finishResize();
+      return;
+    }
+
+    if (this.#railResizeState) {
+      this.#onRailResizeEnd();
       return;
     }
 
@@ -846,8 +1368,9 @@ class SineWebPanels {
 
   #onResizeStart = event => {
     event.preventDefault();
-    const panelElement = this.#surfaceState?.panelContainer?.querySelector(".browserContainer");
-    const width = panelElement?.getBoundingClientRect().width ?? this.#store.width;
+    const count = this.#activeIds.filter(Boolean).length;
+    if (count === 0) return;
+    const width = this.#surfaceShell.getBoundingClientRect().width;
     this.#resizeState = {
       startX: event.clientX,
       startWidth: width,
@@ -862,7 +1385,6 @@ class SineWebPanels {
       : event.clientX - this.#resizeState.startX;
     const width = this.#clampWidth(this.#resizeState.startWidth + delta);
     this.#root.style.setProperty("--sine-web-panels-width", `${width}px`);
-    this.document.documentElement.style.setProperty("--sine-web-panels-width", `${width}px`);
   }
 
   #finishResize() {
@@ -870,9 +1392,18 @@ class SineWebPanels {
       this.window.getComputedStyle(this.#root).getPropertyValue("--sine-web-panels-width"),
       10
     );
-    this.#store.width = this.#clampWidth(width);
-    this.#root.style.setProperty("--sine-web-panels-width", `${this.#store.width}px`);
-    this.document.documentElement.style.setProperty("--sine-web-panels-width", `${this.#store.width}px`);
+    const clamped = this.#clampWidth(width);
+
+    if (this.#activeIds.length === 1) {
+      // Single panel open: remember this width against that panel
+      // specifically, and leave the global pref untouched.
+      this.#store.setPanelWidth(this.#activeIds[0], clamped);
+    } else {
+      // Multi-panel: unchanged from original behavior, global pref only.
+      this.#store.viewerWidth = clamped;
+    }
+
+    this.#root.style.setProperty("--sine-web-panels-width", `${clamped}px`);
     this.#root.removeAttribute("resizing");
     this.#resizeState = null;
   }
@@ -880,15 +1411,76 @@ class SineWebPanels {
   #clampWidth(width) {
     const railRect = this.#rail.getBoundingClientRect();
     const gap = Number.parseFloat(this.window.getComputedStyle(this.#root).getPropertyValue("--sine-web-panels-gap")) || 8;
-    const max = Math.max(MIN_PANEL_WIDTH, this.window.innerWidth - railRect.width - gap * 3);
+    const prefMax = this.#store.maxViewerWidth;
+    const viewportMax = this.window.innerWidth - railRect.width - gap * 3;
+    const max = Math.min(prefMax, viewportMax);
     return Math.min(max, Math.max(MIN_PANEL_WIDTH, Math.round(width)));
   }
 
   #onWindowResize = () => {
-    const width = this.#clampWidth(this.#store.width);
-    this.#store.width = width;
+    if (this.#activeIds.length === 1) {
+      // Re-clamp whatever this single panel's current width is (don't
+      // force it back to the global pref), so its remembered width
+      // still respects new viewport bounds after a window resize.
+      const current = Number.parseInt(
+        this.window.getComputedStyle(this.#root).getPropertyValue("--sine-web-panels-width"),
+        10
+      );
+      const clamped = this.#clampWidth(Number.isFinite(current) ? current : this.#store.viewerWidth);
+      this.#root.style.setProperty("--sine-web-panels-width", `${clamped}px`);
+      return;
+    }
+    const width = this.#clampWidth(this.#store.viewerWidth);
+    this.#store.viewerWidth = width;
     this.#root.style.setProperty("--sine-web-panels-width", `${width}px`);
-    this.document.documentElement.style.setProperty("--sine-web-panels-width", `${width}px`);
+  };
+
+  #onRailResizeStart = event => {
+    event.preventDefault();
+    this.#clearCompactHoverTimer();
+    const railRect = this.#rail.getBoundingClientRect();
+    this.#railResizeState = {
+      startX: event.clientX,
+      startWidth: railRect.width,
+      side: this.#placementSide(),
+    };
+    this.#root.setAttribute("resizing-rail", "true");
+  };
+
+  #onRailResize = event => {
+    if (!this.#railResizeState) return;
+    const delta = this.#railResizeState.side === "right"
+      ? this.#railResizeState.startX - event.clientX
+      : event.clientX - this.#railResizeState.startX;
+    const width = Math.max(32, Math.min(this.#store.maxRailWidth, this.#railResizeState.startWidth + delta));
+    this.#root.style.setProperty("--sine-web-panels-rail-size", `${width}px`);
+    this.#syncLabels();
+
+    // Sync browser chrome margin live so the page doesn't overlap or leave a gap
+    const gap = Number.parseFloat(
+      this.window.getComputedStyle(this.#root).getPropertyValue("--sine-web-panels-gap")
+    ) || 6;
+    const reserved = `${width + gap}px`;
+    const side = this.#placementSide();
+    this.#browserChrome.style.setProperty("--sine-web-panels-reserved-inline-size", reserved);
+    const container = this.#contentContainer ?? this.#findContentContainer();
+    container?.style.setProperty(
+      side === "right" ? "margin-inline-end" : "margin-inline-start",
+      reserved,
+      "important"
+    );
+  };
+
+  #onRailResizeEnd = () => {
+    const size = Number.parseInt(
+      this.window.getComputedStyle(this.#root).getPropertyValue("--sine-web-panels-rail-size"),
+      10
+    );
+    this.#store.railWidth = Math.max(32, Math.min(this.#store.maxRailWidth, Math.round(size)));
+    this.#root.style.setProperty("--sine-web-panels-rail-size", `${this.#store.railWidth}px`);
+    this.#syncLabels();
+    this.#root.removeAttribute("resizing-rail");
+    this.#railResizeState = null;
   };
 
   #onDocumentClick = event => {
@@ -912,49 +1504,6 @@ class SineWebPanels {
     }
   };
 
-  #onTabSelect = () => {
-    if (!this.#activeId) {
-      return;
-    }
-
-    const selectedTab = this.window.gBrowser?.selectedTab;
-    const panelTab = this.#runtime?.get(this.#activeId)?.tab;
-    if (selectedTab === panelTab && this.#activeParentTab && !this.#activeParentTab.closing) {
-      this.window.gBrowser.selectedTab = this.#activeParentTab;
-      return;
-    }
-
-    if (selectedTab && selectedTab !== this.#activeParentTab && !this.#isPanelTab(selectedTab)) {
-      this.#closePanel({ animate: false });
-    }
-  };
-
-  #onTabClose = event => {
-    const tab = event.target;
-    const panelId = tab?.getAttribute?.("sine-web-panel-id");
-    if (panelId) {
-      this.#runtime?.noteTabClosed(panelId);
-      if (this.#activeId === panelId) {
-        this.#closePanel({ animate: false });
-      }
-      return;
-    }
-
-    if (tab === this.#activeParentTab) {
-      this.#closePanel({ animate: false });
-    }
-  };
-
-  #onTabAttrModified = event => {
-    const panelId = event.target?.getAttribute?.("sine-web-panel-id");
-    if (!panelId) {
-      return;
-    }
-
-    this.#syncUnreadFromTab(panelId);
-    this.#render();
-  };
-
   #onTabContextMenuShowing = event => {
     if (event.target.id !== "tabContextMenu" || !this.#tabContextMenuItem) {
       return;
@@ -969,17 +1518,25 @@ class SineWebPanels {
   #onAddTabToWebPanels = event => {
     event.preventDefault();
     const url = this.#contextTabUrl();
-    const panel = this.#store.createPanel(url);
-    if (!panel) {
-      return;
-    }
+    if (!url) return;
+
+    const tab =
+      this.window.TabContextMenu?.contextTab ??
+      this.window.gBrowser?.selectedTab ??
+      null;
+    const tabTitle = tab?.label || "";
+    const panel = this.#store.createPanel(url, tabTitle);
+    if (!panel) return;
 
     this.#store.insert(panel, this.#store.items.length);
     this.#render();
   };
 
   #contextTabUrl() {
-    const tab = this.#currentVisibleTab({ preferContext: true });
+    const tab =
+      this.window.TabContextMenu?.contextTab ??
+      this.window.gBrowser?.selectedTab ??
+      null;
     const spec = tab?.linkedBrowser?.currentURI?.spec;
     return normalizeWebPanelUrl(spec);
   }
@@ -999,28 +1556,17 @@ class SineWebPanels {
     return this.document.documentElement.getAttribute("zen-right-side") === "true" ? "left" : "right";
   }
 
+  #updateSide() {
+    if (!this.#root) {
+      return;
+    }
+    this.#root.setAttribute("side", this.#placementSide());
+    this.#syncChromeLayout();
+  }
+
   #currentTabUrl() {
-    const spec = this.#currentVisibleTab()?.linkedBrowser?.currentURI?.spec;
+    const spec = this.window.gBrowser?.selectedBrowser?.currentURI?.spec;
     return normalizeWebPanelUrl(spec) ? spec : "";
-  }
-
-  #currentVisibleTab({ preferContext = false } = {}) {
-    const contextTab = preferContext ? this.window.TabContextMenu?.contextTab : null;
-    const selectedTab = this.window.gBrowser?.selectedTab ?? null;
-    const tab = contextTab ?? selectedTab;
-    if (tab && !this.#isPanelTab(tab)) {
-      return tab;
-    }
-
-    if (this.#activeParentTab && !this.#activeParentTab.closing) {
-      return this.#activeParentTab;
-    }
-
-    return null;
-  }
-
-  #isPanelTab(tab) {
-    return tab?.getAttribute?.("sine-web-panel-tab") === "true";
   }
 
   #openInNewTab(url) {

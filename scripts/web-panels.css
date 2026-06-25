@@ -1,22 +1,12 @@
-:root {
-  --sine-web-panels-rail-size: 40px;
-  --sine-web-panels-gap: 6px;
-  --sine-web-panels-min-width: 320px;
-  --sine-web-panels-width: 420px;
-  --sine-web-panels-animation-duration: 75ms;
-  --sine-web-panels-surface-strong: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 78%, transparent);
-  --sine-web-panels-border: color-mix(in srgb, currentColor 14%, transparent);
-  --sine-web-panels-shadow: 0 16px 42px color-mix(in srgb, black 28%, transparent);
-}
-
 #sine-web-panels-root {
   --sine-web-panels-rail-size: 40px;
   --sine-web-panels-button-size: 32px;
-  --sine-web-panels-icon-size: 18px;
+  --sine-web-panels-icon-size: 16px;
   --sine-web-panels-gap: 6px;
   --sine-web-panels-min-width: 320px;
   --sine-web-panels-width: 420px;
   --sine-web-panels-animation-duration: 75ms;
+  --sine-web-panels-shell-offset: calc(var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2);
   --sine-web-panels-surface: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 32%, transparent);
   --sine-web-panels-surface-strong: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 78%, transparent);
   --sine-web-panels-panel-base: light-dark(
@@ -46,18 +36,12 @@
     transparent
   );
   --sine-web-panels-panel-radius: var(--panel-border-radius, 12px);
-  --sine-web-panels-hover: var(
-    --toolbarbutton-hover-background,
-    color-mix(in srgb, currentColor 10%, transparent)
-  );
-  --sine-web-panels-active: var(
-    --toolbarbutton-active-background,
-    color-mix(in srgb, currentColor 16%, transparent)
-  );
+  --sine-web-panels-hover: #2b2b2e;
+  --sine-web-panels-active: #3e3f43;
   --sine-web-panels-shadow: 0 16px 42px color-mix(in srgb, black 28%, transparent);
   color-scheme: light dark;
   position: fixed;
-  inset-block: var(--sine-web-panels-gap);
+  inset: 0;
   z-index: 9999;
   pointer-events: none;
 }
@@ -114,35 +98,22 @@
   display: none;
 }
 
+#sine-web-panels-root[compact-panel-active] {
+  --sine-web-panels-shell-offset: var(--sine-web-panels-gap);
+}
+
 #sine-web-panels-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 0;
   background: transparent;
   pointer-events: auto;
 }
 
-#sine-web-panels-root[side="right"] #sine-web-panels-backdrop {
-  inset-inline-end: calc(
-    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width)
-  );
-}
-
-#sine-web-panels-root[side="left"] #sine-web-panels-backdrop {
-  inset-inline-start: calc(
-    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width)
-  );
-}
-
 #sine-web-panels-backdrop[hidden],
-#sine-web-panels-resizer[hidden],
+#sine-web-panels-shell[hidden],
 #sine-web-panels-editor[hidden],
 #sine-web-panels-menu[hidden] {
   display: none;
-}
-
-tab[sine-web-panel-tab="true"] {
-  display: none !important;
 }
 
 #sine-web-panels-rail {
@@ -171,6 +142,14 @@ tab[sine-web-panel-tab="true"] {
   inset-inline-start: var(--sine-web-panels-gap);
 }
 
+/* Compact mode rounded panel styling */
+#sine-web-panels-root[compact][compact-expanded] #sine-web-panels-rail {
+  border-radius: calc(var(--zen-native-inner-radius, 12px) - 2px);
+  background: light-dark(#e9e9e9, #17171A);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(42px) saturate(110%) brightness(0.25) contrast(100%);
+}
+
 #sine-web-panels-list {
   width: 100%;
   min-height: 0;
@@ -187,26 +166,47 @@ tab[sine-web-panel-tab="true"] {
 #sine-web-panels-add-button {
   appearance: none;
   box-sizing: border-box;
-  width: var(--sine-web-panels-button-size);
-  min-width: var(--sine-web-panels-button-size);
   height: var(--sine-web-panels-button-size);
   min-height: var(--sine-web-panels-button-size);
   display: flex;
   align-items: center;
-  justify-content: center;
   border: 0;
-  border-radius: var(--toolbarbutton-border-radius, 8px);
+  border-radius: var(--border-radius-medium, 10px);
   margin: 0;
-  padding: 0;
   color: var(--toolbarbutton-icon-fill, inherit);
   background: transparent;
   font: inherit;
   line-height: 1;
-  text-align: center;
   pointer-events: auto;
 }
 
+@media (-moz-platform: windows) {
+  .sine-web-panels-item,
+  #sine-web-panels-add-button {
+    border-radius: 6px;
+  }
+}
+
+@media (-moz-platform: macos) {
+  .sine-web-panels-item,
+  #sine-web-panels-add-button {
+    border-radius: 12px;
+  }
+}
+
+.sine-web-panels-item {
+  width: 100%;
+  min-width: var(--sine-web-panels-button-size);
+  justify-content: flex-start;
+  padding: 0 4px;
+  gap: 8px;
+}
+
 #sine-web-panels-add-button {
+  width: var(--sine-web-panels-button-size);
+  min-width: var(--sine-web-panels-button-size);
+  justify-content: center;
+  padding: 0;
   font-size: 0;
   font-weight: 400;
   -moz-context-properties: fill;
@@ -221,6 +221,16 @@ tab[sine-web-panel-tab="true"] {
   mask: url("chrome://browser/skin/zen-icons/plus.svg") center / 16px 16px no-repeat;
 }
 
+.sine-web-panels-panel-button {
+  position: relative;
+  overflow: hidden;
+}
+
+/* GPU acceleration for text crispness (Zen's approach) */
+.sine-web-panels-panel-button:active {
+  rotate: 0.01deg;
+}
+
 .sine-web-panels-panel-button:hover,
 #sine-web-panels-add-button:hover {
   background: var(--sine-web-panels-hover);
@@ -232,23 +242,29 @@ tab[sine-web-panel-tab="true"] {
   background: var(--sine-web-panels-active);
 }
 
-.sine-web-panels-panel-button[dragging],
-.sine-web-panels-separator[dragging] {
-  opacity: 0.45;
-}
+
 
 .sine-web-panels-favicon {
   width: var(--sine-web-panels-icon-size);
   height: var(--sine-web-panels-icon-size);
   display: block;
   object-fit: contain;
+  -moz-context-properties: fill, stroke, fill-opacity;
+  fill-opacity: 0.5;
+  border-radius: 4px;
+}
+
+.sine-web-panels-favicon:not([src]),
+.sine-web-panels-favicon:-moz-broken {
+  content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3C/svg%3E") !important;
+  background: color-mix(in srgb, var(--zen-primary-color, AccentColor) 80%, light-dark(rgb(0, 0, 0), rgb(255, 255, 255)));
+  opacity: 0.5;
 }
 
 .sine-web-panels-favicon[fallback] {
   display: none;
 }
 
-.sine-web-panels-favicon[fallback] + .sine-web-panels-badge,
 .sine-web-panels-panel-button:has(.sine-web-panels-favicon[fallback])::before {
   content: "";
   width: var(--sine-web-panels-icon-size);
@@ -260,31 +276,49 @@ tab[sine-web-panel-tab="true"] {
 
 .sine-web-panels-badge {
   position: absolute;
+  top: 2px;
+  inset-inline-end: 2px;
   min-width: 14px;
   height: 14px;
   display: grid;
   place-items: center;
   padding-inline: 3px;
   border-radius: 999px;
-  translate: 11px -11px;
   background: #e5484d;
   color: white;
   font: 10px/1 sans-serif;
   font-weight: 700;
 }
 
-.sine-web-panels-separator {
-  height: 14px;
-  min-height: 14px;
-  cursor: grab;
+.sine-web-panels-label {
+  display: none;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-family: inherit;
+  font-weight: 500;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transform: translateZ(0);
+  will-change: transform;
 }
 
-.sine-web-panels-separator span {
-  width: 18px;
-  height: 1px;
-  border-radius: 1px;
-  background: color-mix(in srgb, currentColor 34%, transparent);
+#sine-web-panels-root[labels] .sine-web-panels-label {
+  display: block;
 }
+
+/* Below textMinWidth: center icon in the pill, no min-width so buttons
+   shrink with the rail instead of overflowing + being clipped */
+#sine-web-panels-root:not([labels]) .sine-web-panels-panel-button {
+  justify-content: center;
+  padding: 0;
+  min-width: 0;
+}
+
+
 
 #sine-web-panels-drop-indicator {
   position: absolute;
@@ -295,98 +329,146 @@ tab[sine-web-panel-tab="true"] {
   pointer-events: none;
 }
 
-#sine-web-panels-resizer {
-  position: fixed;
-  inset-block: var(--sine-web-panels-gap);
-  width: 8px;
-  z-index: 10001;
-  cursor: ew-resize;
-  background: transparent;
-  pointer-events: auto;
-}
-
-:root[sine-web-panels-side="right"] #sine-web-panels-resizer {
-  inset-inline-end: calc(
-    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width) - 4px
-  );
-}
-
-:root[sine-web-panels-side="left"] #sine-web-panels-resizer {
-  inset-inline-start: calc(
-    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width) - 4px
-  );
-}
-
-#sine-web-panels-resizer:hover,
-#sine-web-panels-root[resizing] #sine-web-panels-resizer {
-  background: color-mix(in srgb, AccentColor 35%, transparent);
-}
-
-.browserSidebarContainer.sine-web-panels-parent-background {
-  box-shadow: none !important;
-}
-
-.browserSidebarContainer.sine-web-panels-overlay {
-  overflow: visible !important;
-  visibility: inherit !important;
-  z-index: 10000 !important;
-  pointer-events: none;
-  box-shadow: none !important;
-}
-
-.browserSidebarContainer.sine-web-panels-overlay .browserContainer {
+#sine-web-panels-shell {
   box-sizing: border-box;
-  position: fixed !important;
-  inset-block: var(--sine-web-panels-gap) !important;
-  width: max(var(--sine-web-panels-min-width), var(--sine-web-panels-width)) !important;
-  min-width: var(--sine-web-panels-min-width) !important;
-  border: 1px solid var(--sine-web-panels-border);
-  border-radius: 14px;
+  position: fixed;
+  top: var(--sine-web-panels-gap);
+  bottom: var(--sine-web-panels-gap);
+  width: max(var(--sine-web-panels-min-width), var(--sine-web-panels-width));
+  min-width: var(--sine-web-panels-min-width);
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
   overflow: hidden;
   background: var(--sine-web-panels-surface-strong);
   box-shadow: var(--sine-web-panels-shadow);
   backdrop-filter: blur(20px) saturate(130%);
   pointer-events: auto;
+  border: 1px solid var(--sine-web-panels-border);
+  border-radius: 14px;
+  transition: inset-inline-start 180ms ease, inset-inline-end 180ms ease;
 }
 
-:root[sine-web-panels-side="right"] .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
-  inset-inline-end: calc(var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2) !important;
-  animation: sine-web-panels-open-right var(--sine-web-panels-animation-duration) ease-out;
+#sine-web-panels-root[side="right"] #sine-web-panels-shell {
+  inset-inline-end: var(--sine-web-panels-shell-offset);
 }
 
-:root[sine-web-panels-side="left"] .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
-  inset-inline-start: calc(var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2) !important;
-  animation: sine-web-panels-open-left var(--sine-web-panels-animation-duration) ease-out;
+#sine-web-panels-root[side="left"] #sine-web-panels-shell {
+  inset-inline-start: var(--sine-web-panels-shell-offset);
 }
 
-#sine-web-panels-root[switching] ~ .browserSidebarContainer.sine-web-panels-overlay .browserContainer,
-#sine-web-panels-root[resizing] ~ .browserSidebarContainer.sine-web-panels-overlay .browserContainer,
-:root:has(#sine-web-panels-root[switching]) .browserSidebarContainer.sine-web-panels-overlay .browserContainer,
-:root:has(#sine-web-panels-root[resizing]) .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
-  animation: none;
-}
-
-:root:has(#sine-web-panels-root[closing][side="right"]) .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
-  animation: sine-web-panels-close-right var(--sine-web-panels-animation-duration) ease-in forwards;
-}
-
-:root:has(#sine-web-panels-root[closing][side="left"]) .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
-  animation: sine-web-panels-close-left var(--sine-web-panels-animation-duration) ease-in forwards;
-}
-
-:root:has(#sine-web-panels-root[resizing]) .browserSidebarContainer.sine-web-panels-overlay browser {
+/* Edge gutter — invisible resize zone at the panel/rail gap, inside root's
+   stacking context so pointer events work reliably. */
+#sine-web-panels-edge-gutter {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: 100001;
+  cursor: ew-resize;
   pointer-events: none;
+  background: transparent;
 }
 
-.browserSidebarContainer.sine-web-panels-overlay .browserStack,
-.browserSidebarContainer.sine-web-panels-overlay browser {
-  width: 100% !important;
-  height: 100% !important;
-  min-width: 0 !important;
-  min-height: 0 !important;
+#sine-web-panels-root[side="right"] #sine-web-panels-edge-gutter {
+  inset-inline-end: calc(var(--sine-web-panels-shell-offset) - var(--sine-web-panels-gap) / 2 - 2px);
 }
 
-#sine-web-panels-editor {
+#sine-web-panels-root[side="left"] #sine-web-panels-edge-gutter {
+  inset-inline-start: calc(var(--sine-web-panels-shell-offset) - var(--sine-web-panels-gap) / 2 - 2px);
+}
+
+/* Viewer resize handle — interaction zone at panel/content boundary */
+#sine-web-panels-viewer-resizer {
+  position: fixed;
+  top: var(--sine-web-panels-gap);
+  bottom: var(--sine-web-panels-gap);
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 100001;
+  pointer-events: auto;
+  background: transparent;
+  border-radius: 3px;
+  transition: background 120ms ease;
+}
+
+#sine-web-panels-viewer-resizer:hover,
+#sine-web-panels-root[resizing] #sine-web-panels-viewer-resizer {
+  background: color-mix(in srgb, AccentColor 40%, transparent);
+}
+
+#sine-web-panels-root[side="right"] #sine-web-panels-viewer-resizer {
+  inset-inline-end: calc(var(--sine-web-panels-shell-offset) + var(--sine-web-panels-width) - 3px);
+}
+
+#sine-web-panels-root[side="left"] #sine-web-panels-viewer-resizer {
+  inset-inline-start: calc(var(--sine-web-panels-shell-offset) + var(--sine-web-panels-width) - 3px);
+}
+
+/* Rail resize handle */
+#sine-web-panels-rail-resizer {
+  position: fixed;
+  top: var(--sine-web-panels-gap);
+  bottom: var(--sine-web-panels-gap);
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 100000;
+  pointer-events: auto;
+  background: transparent;
+  border-radius: 3px;
+  transition: background 120ms ease;
+}
+
+#sine-web-panels-rail-resizer:hover,
+#sine-web-panels-root[resizing-rail] #sine-web-panels-rail-resizer {
+  background: color-mix(in srgb, AccentColor 40%, transparent);
+}
+
+#sine-web-panels-root[side="right"] #sine-web-panels-rail-resizer {
+  inset-inline-end: calc(var(--sine-web-panels-gap) + var(--sine-web-panels-rail-size));
+}
+
+#sine-web-panels-root[side="left"] #sine-web-panels-rail-resizer {
+  inset-inline-start: calc(var(--sine-web-panels-gap) + var(--sine-web-panels-rail-size));
+}
+
+/* Hide rail resizer in compact mode when not expanded (rail has no width) */
+#sine-web-panels-root[compact]:not([compact-expanded]) #sine-web-panels-rail-resizer {
+  display: none;
+}
+
+/* Two panels: vertical stack (2 on top of 1) */
+#sine-web-panels-root[panel-count="2"] #sine-web-panels-shell {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+/* Three panels: 2 top-left, 3 top-right, 1 bottom full */
+#sine-web-panels-root[panel-count="3"] #sine-web-panels-shell {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+/* Four panels: 2x2 grid */
+#sine-web-panels-root[panel-count="4"] #sine-web-panels-shell {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.sine-web-panels-surface {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  background: Canvas;
+}
+
+.sine-web-panels-browser {
+  min-width: 0;
+  flex: 1;
+}
+
+#sine-web-panels-editor,
+#sine-web-panels-settings {
   appearance: none;
   -moz-appearance: none;
   box-sizing: border-box;
@@ -395,7 +477,8 @@ tab[sine-web-panel-tab="true"] {
   font: menu;
 }
 
-#sine-web-panels-editor-content {
+#sine-web-panels-editor-content,
+#sine-web-panels-settings-content {
   box-sizing: border-box;
   width: min(520px, calc(100vw - 32px));
   display: grid;
@@ -405,6 +488,50 @@ tab[sine-web-panel-tab="true"] {
   padding: 6px;
   color: inherit;
   font: menu;
+}
+
+#sine-web-panels-settings-content {
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 12px;
+}
+
+.sine-web-panels-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.sine-web-panels-setting-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: inherit;
+}
+
+#sine-web-panels-settings-content input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+#sine-web-panels-settings-content input[type="number"] {
+  width: 80px;
+  min-height: 28px;
+  padding: 2px 6px;
+  border: 1px solid var(--sine-web-panels-panel-border);
+  border-radius: var(--border-radius-small, 4px);
+  background: var(--sine-web-panels-panel-muted-background);
+  color: inherit;
+  font: inherit;
+  text-align: right;
+}
+
+#sine-web-panels-settings-content input[type="number"]:focus {
+  outline: none;
+  border-color: AccentColor;
+  background: var(--sine-web-panels-panel-background);
 }
 
 #sine-web-panels-url-input {
@@ -438,6 +565,44 @@ tab[sine-web-panel-tab="true"] {
     color-mix(in srgb, currentColor 10%, transparent)
   );
   box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.sine-web-panels-editor-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.sine-web-panels-editor-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: inherit;
+}
+
+.sine-web-panels-editor-select {
+  appearance: none;
+  -moz-appearance: none;
+  box-sizing: border-box;
+  min-width: 120px;
+  min-height: 28px;
+  padding: 2px 20px 2px 6px;
+  border: 1px solid var(--sine-web-panels-panel-border);
+  border-radius: var(--border-radius-small, 4px);
+  background: var(--sine-web-panels-panel-muted-background);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='currentColor' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+}
+
+.sine-web-panels-editor-select:focus {
+  outline: none;
+  border-color: AccentColor;
+  background: var(--sine-web-panels-panel-background);
 }
 
 .sine-web-panels-ghost-button,
@@ -554,7 +719,90 @@ tab[sine-web-panel-tab="true"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
+  #sine-web-panels-shell {
     animation: none !important;
   }
+}
+
+/* === Compact Mode === */
+
+#sine-web-panels-hotzone {
+  position: fixed;
+  inset-block: 0;
+  width: 12px;
+  z-index: 2147483647;
+  pointer-events: none;
+  background: transparent;
+  transition: opacity var(--sine-web-panels-animation-duration) ease-out;
+}
+
+#sine-web-panels-root[compact] #sine-web-panels-hotzone {
+  pointer-events: auto;
+}
+
+#sine-web-panels-root[side="right"] #sine-web-panels-hotzone {
+  inset-inline-end: 0;
+}
+
+#sine-web-panels-root[side="left"] #sine-web-panels-hotzone {
+  inset-inline-start: 0;
+}
+
+#sine-web-panels-root[compact] #sine-web-panels-rail {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
+
+#sine-web-panels-root[compact]:not([compact-expanded]):not([compact-panel-active]) #sine-web-panels-shell {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  border: 0;
+}
+
+#sine-web-panels-root[compact] #sine-web-panels-backdrop {
+  display: none;
+}
+
+#sine-web-panels-root[compact-expanded] #sine-web-panels-rail {
+  width: var(--sine-web-panels-rail-size);
+  min-width: var(--sine-web-panels-rail-size);
+  padding: 6px 4px;
+  pointer-events: auto;
+  opacity: 1;
+}
+
+#sine-web-panels-root[compact-expanded] #sine-web-panels-shell {
+  pointer-events: auto;
+  opacity: 1;
+  border: 1px solid var(--sine-web-panels-border);
+}
+
+#sine-web-panels-root[compact-expanded] #sine-web-panels-hotzone {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#sine-web-panels-root[compact] #sine-web-panels-rail,
+#sine-web-panels-root[compact] #sine-web-panels-shell {
+  transition:
+    width var(--sine-web-panels-animation-duration) ease-out,
+    min-width var(--sine-web-panels-animation-duration) ease-out,
+    opacity var(--sine-web-panels-animation-duration) ease-out,
+    padding var(--sine-web-panels-animation-duration) ease-out;
+}
+
+#sine-web-panels-root[compact-expanded] #sine-web-panels-rail,
+#sine-web-panels-root[compact-expanded] #sine-web-panels-shell {
+  transition:
+    width var(--sine-web-panels-animation-duration) ease-out,
+    min-width var(--sine-web-panels-animation-duration) ease-out,
+    opacity var(--sine-web-panels-animation-duration) ease-out,
+    padding var(--sine-web-panels-animation-duration) ease-out;
 }

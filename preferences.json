@@ -6,10 +6,37 @@
     "defaultValue": true
   },
   {
+    "type": "checkbox",
+    "label": "Compact Mode",
+    "property": "sine.web-panels.compact",
+    "defaultValue": false
+  },
+  {
     "type": "string",
     "label": "Panel width",
     "property": "sine.web-panels.width",
     "defaultValue": "420",
     "placeholder": "420"
+  },
+  {
+    "type": "string",
+    "label": "Viewer width",
+    "property": "sine.web-panels.viewer-width",
+    "defaultValue": "420",
+    "placeholder": "420"
+  },
+  {
+    "type": "string",
+    "label": "Max viewer width",
+    "property": "sine.web-panels.max-viewer-width",
+    "defaultValue": "1920",
+    "placeholder": "1920"
+  },
+  {
+    "type": "string",
+    "label": "Rail width",
+    "property": "sine.web-panels.rail-width",
+    "defaultValue": "40",
+    "placeholder": "40"
   }
 ]
