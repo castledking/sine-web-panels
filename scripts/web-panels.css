@@ -1,16 +1,30 @@
 :root {
-  --sine-web-panels-rail-size: 40px;
+  --sine-web-panels-rail-size: 36px;
   --sine-web-panels-gap: 6px;
+  --sine-web-panels-visible-rail-size: calc(
+    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2
+  );
+  --sine-web-panels-offset: var(--sine-web-panels-visible-rail-size);
+  --sine-web-panels-panel-offset: var(--sine-web-panels-gap);
+  --sine-web-panels-resizer-width: 8px;
   --sine-web-panels-min-width: 320px;
   --sine-web-panels-width: 420px;
   --sine-web-panels-animation-duration: 75ms;
-  --sine-web-panels-surface-strong: color-mix(in srgb, var(--toolbar-bgcolor, Canvas) 78%, transparent);
+  --sine-web-panels-surface-strong: color-mix(
+    in srgb,
+    var(--zen-main-browser-background, var(--toolbar-bgcolor, Canvas)) 72%,
+    transparent
+  );
   --sine-web-panels-border: color-mix(in srgb, currentColor 14%, transparent);
-  --sine-web-panels-shadow: 0 16px 42px color-mix(in srgb, black 28%, transparent);
+  --sine-web-panels-radius: var(--zen-native-inner-radius, 12px);
+  --sine-web-panels-shadow: var(
+    --zen-big-shadow,
+    0 16px 42px color-mix(in srgb, black 28%, transparent)
+  );
 }
 
 #sine-web-panels-root {
-  --sine-web-panels-rail-size: 40px;
+  --sine-web-panels-rail-size: 36px;
   --sine-web-panels-button-size: 32px;
   --sine-web-panels-icon-size: 18px;
   --sine-web-panels-gap: 6px;
@@ -119,18 +133,18 @@
   inset: 0;
   z-index: 0;
   background: transparent;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 #sine-web-panels-root[side="right"] #sine-web-panels-backdrop {
   inset-inline-end: calc(
-    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width)
+    var(--sine-web-panels-panel-offset) + var(--sine-web-panels-width)
   );
 }
 
 #sine-web-panels-root[side="left"] #sine-web-panels-backdrop {
   inset-inline-start: calc(
-    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width)
+    var(--sine-web-panels-panel-offset) + var(--sine-web-panels-width)
   );
 }
 
@@ -296,30 +310,59 @@ tab[sine-web-panel-tab="true"] {
 }
 
 #sine-web-panels-resizer {
-  position: fixed;
-  inset-block: var(--sine-web-panels-gap);
-  width: 8px;
-  z-index: 10001;
+  position: absolute;
+  inset-block: 0;
+  width: var(--sine-web-panels-resizer-width);
+  z-index: 2147483647;
   cursor: ew-resize;
   background: transparent;
-  pointer-events: auto;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+#sine-web-panels-resizer::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 50px;
+  border-radius: 2px;
+  background: color-mix(in srgb, AccentColor 75%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 80ms ease-in-out;
 }
 
 :root[sine-web-panels-side="right"] #sine-web-panels-resizer {
-  inset-inline-end: calc(
-    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width) - 4px
-  );
+  left: 0;
+  right: auto;
+  transform: translateX(-100%);
+}
+
+:root[sine-web-panels-side="right"] #sine-web-panels-resizer::before {
+  left: 100%;
 }
 
 :root[sine-web-panels-side="left"] #sine-web-panels-resizer {
-  inset-inline-start: calc(
-    var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2 + var(--sine-web-panels-width) - 4px
-  );
+  left: 100%;
+  right: auto;
+  transform: none;
+}
+
+:root[sine-web-panels-side="left"] #sine-web-panels-resizer::before {
+  left: 0;
 }
 
 #sine-web-panels-resizer:hover,
-#sine-web-panels-root[resizing] #sine-web-panels-resizer {
-  background: color-mix(in srgb, AccentColor 35%, transparent);
+:root:has(#sine-web-panels-root[resizing]) #sine-web-panels-resizer {
+  background: transparent;
+}
+
+#sine-web-panels-resizer:hover::before,
+:root[sine-web-panels-resizer-hover="true"] #sine-web-panels-resizer::before,
+:root:has(#sine-web-panels-root[resizing]) #sine-web-panels-resizer::before {
+  opacity: 1;
 }
 
 .browserSidebarContainer.sine-web-panels-parent-background {
@@ -340,22 +383,30 @@ tab[sine-web-panel-tab="true"] {
   inset-block: var(--sine-web-panels-gap) !important;
   width: max(var(--sine-web-panels-min-width), var(--sine-web-panels-width)) !important;
   min-width: var(--sine-web-panels-min-width) !important;
-  border: 1px solid var(--sine-web-panels-border);
-  border-radius: 14px;
-  overflow: hidden;
-  background: var(--sine-web-panels-surface-strong);
-  box-shadow: var(--sine-web-panels-shadow);
-  backdrop-filter: blur(20px) saturate(130%);
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
   pointer-events: auto;
 }
 
 :root[sine-web-panels-side="right"] .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
-  inset-inline-end: calc(var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2) !important;
-  animation: sine-web-panels-open-right var(--sine-web-panels-animation-duration) ease-out;
+  inset-inline-end: var(--sine-web-panels-panel-offset) !important;
 }
 
 :root[sine-web-panels-side="left"] .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
-  inset-inline-start: calc(var(--sine-web-panels-rail-size) + var(--sine-web-panels-gap) * 2) !important;
+  inset-inline-start: var(--sine-web-panels-panel-offset) !important;
+}
+
+#sine-web-panels-root[opening][side="right"] ~ .browserSidebarContainer.sine-web-panels-overlay .browserContainer,
+:root:has(#sine-web-panels-root[opening][side="right"]) .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
+  animation: sine-web-panels-open-right var(--sine-web-panels-animation-duration) ease-out;
+}
+
+#sine-web-panels-root[opening][side="left"] ~ .browserSidebarContainer.sine-web-panels-overlay .browserContainer,
+:root:has(#sine-web-panels-root[opening][side="left"]) .browserSidebarContainer.sine-web-panels-overlay .browserContainer {
   animation: sine-web-panels-open-left var(--sine-web-panels-animation-duration) ease-out;
 }
 
@@ -384,6 +435,18 @@ tab[sine-web-panel-tab="true"] {
   height: 100% !important;
   min-width: 0 !important;
   min-height: 0 !important;
+}
+
+.browserSidebarContainer.sine-web-panels-overlay .browserStack {
+  border-radius: var(--sine-web-panels-radius);
+  overflow: hidden;
+  background-color: var(--sine-web-panels-surface-strong);
+  backdrop-filter: blur(24px) saturate(1.2) brightness(1.08);
+  box-shadow: var(--sine-web-panels-shadow);
+}
+
+.browserSidebarContainer.sine-web-panels-overlay browser {
+  background: transparent !important;
 }
 
 #sine-web-panels-editor {

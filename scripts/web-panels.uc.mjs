@@ -60,9 +60,11 @@ class SineWebPanels {
   #railInsertIndex = null;
   #unreadCounts = new Map();
   #menuOpenedAt = 0;
+  #ignoreOutsideClicksUntil = 0;
   #abortController = new AbortController();
   #prefObserver;
   #resizeState = null;
+  #resizeHovering = false;
   #dragState = null;
 
   constructor(windowRef) {
@@ -81,6 +83,7 @@ class SineWebPanels {
 
   destroyExistingRoot() {
     this.document.getElementById(ROOT_ID)?.remove();
+    this.document.getElementById(RESIZER_ID)?.remove();
     this.document.getElementById(EDITOR_ID)?.remove();
     this.document.getElementById(TAB_MENU_ITEM_ID)?.remove();
     this.#clearOrphanedOverlayState();
@@ -92,6 +95,7 @@ class SineWebPanels {
       this.window.clearTimeout(this.#closeTimer);
       this.#closeTimer = null;
     }
+    this.#setResizeHover(false);
     this.#closeSurface({ selectParent: false });
     if (this.#prefObserver) {
       Services.prefs.removeObserver(WebPanelsStore.prefs.enabled, this.#prefObserver);
@@ -100,12 +104,14 @@ class SineWebPanels {
     this.#resetChromeLayout();
     this.#editor?.remove();
     this.#tabContextMenuItem?.remove();
+    this.#resizer?.remove();
     this.#root?.remove();
     this.#activeId = null;
     this.#activeParentTab = null;
     this.#surfaceState = null;
     this.#editor = null;
     this.#tabContextMenuItem = null;
+    this.#resizer = null;
     this.#root = null;
   }
 
@@ -150,8 +156,8 @@ class SineWebPanels {
     this.#editor = this.#buildEditor();
     this.#menu = this.#el("div", { id: MENU_ID, hidden: "true", role: "menu" });
 
-    this.#root.append(this.#backdrop, this.#resizer, this.#rail, this.#menu);
-    this.#browserChrome.append(this.#root);
+    this.#root.append(this.#backdrop, this.#rail, this.#menu);
+    this.#browserChrome.append(this.#root, this.#resizer);
     (this.document.getElementById("mainPopupSet") ?? this.#browserChrome).append(this.#editor);
     this.#mountTabContextMenuItem();
     this.#syncChromeLayout();
@@ -167,7 +173,7 @@ class SineWebPanels {
       }
     }, { signal });
     this.#rail.addEventListener("contextmenu", this.#onRailContextMenu, { signal });
-    this.#resizer.addEventListener("pointerdown", this.#onResizeStart, { signal });
+    this.window.addEventListener("pointerdown", this.#onWindowPointerDown, { signal, capture: true });
     this.window.addEventListener("pointermove", this.#onPointerMove, { signal });
     this.window.addEventListener("pointerup", this.#onPointerUp, { signal });
     this.window.addEventListener("resize", this.#onWindowResize, { signal });
@@ -382,12 +388,16 @@ class SineWebPanels {
     this.#resizer.hidden = false;
     this.#root.setAttribute("open", "true");
     this.#root.toggleAttribute("switching", switching);
+    this.#root.toggleAttribute("opening", !switching);
     this.#root.removeAttribute("closing");
     this.#root.setAttribute("active", item.id);
     this.#bindBrowserTitle(item, panelTab.linkedBrowser);
     this.#syncUnreadFromTab(item.id);
     this.#render();
-    this.window.setTimeout(() => this.#root?.removeAttribute("switching"), 90);
+    this.window.setTimeout(() => {
+      this.#root?.removeAttribute("switching");
+      this.#root?.removeAttribute("opening");
+    }, 90);
   }
 
   #closePanel({ animate = true } = {}) {
@@ -397,6 +407,7 @@ class SineWebPanels {
 
     this.#root.removeAttribute("active");
     this.#root.removeAttribute("open");
+    this.#root.removeAttribute("opening");
     if (this.#closeTimer) {
       this.window.clearTimeout(this.#closeTimer);
       this.#closeTimer = null;
@@ -417,8 +428,10 @@ class SineWebPanels {
     this.#activeParentTab = null;
     this.#backdrop.hidden = true;
     this.#resizer.hidden = true;
+    this.#setResizeHover(false);
     this.#root.removeAttribute("active");
     this.#root.removeAttribute("open");
+    this.#root.removeAttribute("opening");
     this.#root.removeAttribute("closing");
     this.#render();
   }
@@ -428,13 +441,15 @@ class SineWebPanels {
     const panelBrowser = panelTab?.linkedBrowser;
     const parentContainer = parentBrowser?.closest(".browserSidebarContainer");
     const panelContainer = panelBrowser?.closest(".browserSidebarContainer");
-    if (!parentBrowser || !panelBrowser || !parentContainer || !panelContainer) {
+    const panelFrame = panelContainer?.querySelector(".browserContainer");
+    if (!parentBrowser || !panelBrowser || !parentContainer || !panelContainer || !panelFrame) {
       return false;
     }
 
     this.#closeSurface({ selectParent: false });
     parentContainer.classList.add("sine-web-panels-parent-background");
     panelContainer.classList.add("deck-selected", "sine-web-panels-overlay");
+    panelFrame.append(this.#resizer);
     panelBrowser.setAttribute("sine-web-panel-selected", "true");
     parentBrowser.zenModeActive = true;
     parentBrowser.docShellIsActive = true;
@@ -451,6 +466,7 @@ class SineWebPanels {
       panelBrowser,
       parentContainer,
       panelContainer,
+      panelFrame,
     };
     return true;
   }
@@ -492,7 +508,7 @@ class SineWebPanels {
   }
 
   #isPointInsideActivePanel(clientX, clientY) {
-    const panelElement = this.#surfaceState?.panelContainer?.querySelector(".browserContainer");
+    const panelElement = this.#activePanelSurface();
     if (!panelElement) {
       return false;
     }
@@ -504,6 +520,50 @@ class SineWebPanels {
       clientY >= rect.top &&
       clientY <= rect.bottom
     );
+  }
+
+  #eventIsOnResizeEdge(event) {
+    const panelElement = this.#activePanelSurface();
+    if (!panelElement || this.#resizer?.hidden) {
+      return false;
+    }
+
+    const rect = panelElement.getBoundingClientRect();
+    if (event.clientY < rect.top || event.clientY > rect.bottom) {
+      return false;
+    }
+
+    const hitWidth = this.#resizeHitWidth();
+    if (this.#placementSide() === "right") {
+      return event.clientX < rect.left && event.clientX >= rect.left - hitWidth;
+    }
+
+    return event.clientX > rect.right && event.clientX <= rect.right + hitWidth;
+  }
+
+  #activePanelSurface() {
+    return (
+      this.#surfaceState?.panelBrowser ??
+      this.#surfaceState?.panelContainer?.querySelector(".browserStack") ??
+      this.#surfaceState?.panelContainer?.querySelector(".browserContainer") ??
+      null
+    );
+  }
+
+  #resizeHitWidth() {
+    const styles = this.window.getComputedStyle(this.#root);
+    const width = Number.parseFloat(styles.getPropertyValue("--sine-web-panels-resizer-width"));
+    return Number.isFinite(width) ? width : 8;
+  }
+
+  #setResizeHover(isHovering) {
+    if (this.#resizeHovering === isHovering) {
+      return;
+    }
+
+    this.#resizeHovering = isHovering;
+    this.document.documentElement.toggleAttribute("sine-web-panels-resizer-hover", isHovering);
+    this.window.setCursor?.(isHovering ? "ew-resize" : "auto");
   }
 
   #bindBrowserTitle(item, browser) {
@@ -772,6 +832,8 @@ class SineWebPanels {
       return;
     }
 
+    this.#setResizeHover(this.#eventIsOnResizeEdge(event));
+
     if (!this.#dragState) {
       return;
     }
@@ -790,6 +852,7 @@ class SineWebPanels {
   #onPointerUp = event => {
     if (this.#resizeState) {
       this.#finishResize();
+      this.#setResizeHover(this.#eventIsOnResizeEdge(event));
       return;
     }
 
@@ -844,8 +907,15 @@ class SineWebPanels {
     return this.#items.length;
   }
 
-  #onResizeStart = event => {
-    event.preventDefault();
+  #onWindowPointerDown = event => {
+    if (event.button !== 0 || !this.#eventIsOnResizeEdge(event)) {
+      return;
+    }
+
+    this.#onResizeStart(event);
+  };
+
+  #onResizeStart(event) {
     const panelElement = this.#surfaceState?.panelContainer?.querySelector(".browserContainer");
     const width = panelElement?.getBoundingClientRect().width ?? this.#store.width;
     this.#resizeState = {
@@ -853,8 +923,9 @@ class SineWebPanels {
       startWidth: width,
       side: this.#placementSide(),
     };
+    this.#setResizeHover(true);
     this.#root.setAttribute("resizing", "true");
-  };
+  }
 
   #resize(event) {
     const delta = this.#resizeState.side === "right"
@@ -873,8 +944,13 @@ class SineWebPanels {
     this.#store.width = this.#clampWidth(width);
     this.#root.style.setProperty("--sine-web-panels-width", `${this.#store.width}px`);
     this.document.documentElement.style.setProperty("--sine-web-panels-width", `${this.#store.width}px`);
-    this.#root.removeAttribute("resizing");
     this.#resizeState = null;
+    this.#ignoreOutsideClicksUntil = this.window.performance.now() + 250;
+    this.window.requestAnimationFrame(() => {
+      this.window.requestAnimationFrame(() => {
+        this.#root?.removeAttribute("resizing");
+      });
+    });
   }
 
   #clampWidth(width) {
@@ -901,6 +977,14 @@ class SineWebPanels {
     this.#closeMenu();
     if (!event.target.closest(`#${ADD_BUTTON_ID}`)) {
       this.#closeEditor();
+    }
+    if (
+      this.#activeId &&
+      this.window.performance.now() >= this.#ignoreOutsideClicksUntil &&
+      !event.target.closest(`#${ROOT_ID}`) &&
+      !this.#isPointInsideActivePanel(event.clientX, event.clientY)
+    ) {
+      this.#closePanel();
     }
   };
 
